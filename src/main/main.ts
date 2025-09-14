@@ -1,31 +1,41 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import url from 'node:url';
+import url, { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { parseSource } from '../services/parseSource.js';
 import { compileSource } from '../services/compileSource.js';
-import type { ParseResponse, CompileResponse } from '@shared/types';
+import type { ParseResponse, CompileResponse } from '../shared/types.js';
 
-const isDev = process.env.NODE_ENV === 'development';
+// ESM replacements for __dirname / require
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
+
+const isDev = process.env.NODE_ENV === 'development'; // retained if later we reintroduce dev-only tooling
 
 async function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
+  preload: path.join(__dirname, './preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     }
   });
 
   if (isDev) {
+    // Dev: use Vite dev server for fast HMR
     await win.loadURL('http://localhost:5173');
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    const filePath = url.pathToFileURL(path.join(__dirname, '../../renderer/index.html')).toString();
+    // Prod: load built static files
+    const filePath = url.pathToFileURL(path.join(__dirname, '../../../renderer/index.html')).toString();
     await win.loadURL(filePath);
   }
+
+  buildMenu(win);
 }
 
 app.whenReady().then(() => {
@@ -85,10 +95,70 @@ function registerIpc() {
 
 function getVersion(pkgName: string): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require(path.join(process.cwd(), 'node_modules', pkgName, 'package.json'));
+    const pkgPath = path.join(process.cwd(), 'node_modules', pkgName, 'package.json');
+    const pkg = require(pkgPath);
     return pkg.version || 'unknown';
   } catch {
     return 'unknown';
   }
+}
+
+function buildMenu(win: BrowserWindow) {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open File...',
+          accelerator: 'CmdOrCtrl+O',
+          click: async () => {
+            const result = await dialog.showOpenDialog({ properties: ['openFile'] });
+            if (result.canceled || result.filePaths.length === 0) return;
+            try {
+              const content = await readFile(result.filePaths[0], 'utf8');
+              win.webContents.send('file:openResult', { path: result.filePaths[0], content });
+            } catch (err: any) {
+              // ignore read errors for now
+            }
+          }
+        },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Build',
+      submenu: [
+        {
+          label: 'Recompile',
+          accelerator: 'CmdOrCtrl+Shift+B',
+          click: () => win.webContents.send('build:recompile')
+        }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        {
+          label: 'Toggle Theme',
+          accelerator: 'CmdOrCtrl+T',
+          click: () => win.webContents.send('ui:toggleTheme')
+        }
+      ]
+    },
+    {
+      label: 'Panels',
+      submenu: [
+        { label: 'Diagnostics', click: () => win.webContents.send('ui:setPanel', 'diagnostics') },
+        { label: 'AST', click: () => win.webContents.send('ui:setPanel', 'ast') },
+        { label: 'Tokens', click: () => win.webContents.send('ui:setPanel', 'tokens') },
+        { label: 'IR', click: () => win.webContents.send('ui:setPanel', 'ir') }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 }

@@ -1,4 +1,4 @@
-import type { FileKind } from '@shared/types';
+import type { FileKind } from '../shared/types.js';
 
 export interface DetectOptions { filename?: string; heuristics?: boolean; }
 

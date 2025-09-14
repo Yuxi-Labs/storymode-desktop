@@ -50,3 +50,22 @@ See the `doc/` folder for:
 
 ---
 Generated scaffold date: 2025-09-14
+
+## Integration Assumptions & Notes (Added During Editor Wiring)
+
+- `@yuxilabs/storymode-core` presumed to expose a `parse(content, options)` function returning `{ ast, tokens?, diagnostics?, parseTimeMs?, sceneIndex? }`. The service layer wraps this dynamically; if the shape differs it gracefully falls back to a mock implementation and logs a console warning.
+- `@yuxilabs/storymode-compiler` presumed to expose `compile(ast, options)` returning `{ ir, diagnostics?, stats?, genTimeMs? }`. Fallback path builds a mock IR from token count.
+- Dynamic `require` is performed via `eval('require')` to avoid bundler static analysis issues and permit absence during early scaffolding.
+- Renderer TypeScript config (`tsconfig.renderer.json`) needed explicit `types` entries for `react` and `react-dom` because specifying `types` narrows automatic inclusion; without them JSX types were missing.
+- ESM (NodeNext) requires explicit `.js` extensions for relative runtime imports. Source imports use `.js` pointing to emitted files (e.g. `../store/store.js`). Vite handles resolution in dev; TypeScript understands this under `moduleResolution: NodeNext`.
+- Store currently implements only `file`, `parse`, and minimal `ui` slices; other slices (compile, navigation, timings) described in `doc/STATE_MODEL.md` are deferred.
+- Editor uses Monaco lazily; language is `plaintext` placeholder until Storymode language tokenization integration. Diagnostics are panel-only (no inline squiggles yet) aligning with MVP scope.
+- Debounced parse interval defaults to 200ms from state slice; adjust via store (`ui.parseDebounceMs`).
+- All IPC calls assume main process handlers return consistent envelopes; error objects are stringified `error.message` only.
+
+### Follow-Up TODO Candidates
+- Integrate real token -> Monaco theming & semantic classifications when core exposes token type taxonomy.
+- Add IR panel & AST tree components (current code only has diagnostics + editor).
+- File watch integration with `watchFile` service stub and renderer reload prompt toggle.
+- Status bar version info caching and initial load request (currently manual button).
+

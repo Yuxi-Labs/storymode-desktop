@@ -3,8 +3,8 @@
   "compilerOptions": {
     "outDir": "dist/renderer",
     "lib": ["ES2022", "DOM"],
-    "types": ["vite/client"],
     "jsx": "react-jsx",
+    "types": ["react", "react-dom"],
     "noEmit": false
   },
   "include": ["src/renderer/**/*", "src/shared/**/*"],
