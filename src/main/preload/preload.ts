@@ -35,8 +35,8 @@ try {
   console.error('[preload] Failed to expose API', err);
 }
 
-export { api }; // keep type visibility for TS
-
 declare global {
   interface Window { storymode: typeof api }
 }
+
+export {};

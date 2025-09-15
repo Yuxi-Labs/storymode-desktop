@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>StoryMode Desktop</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <!-- CSP: allow self resources, websocket for Vite HMR, and dedicated workers (no blob/data). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'; connect-src 'self' ws: http://localhost:*;">
 </head>
   <body>
     <div id="root"></div>

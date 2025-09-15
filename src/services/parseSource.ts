@@ -14,10 +14,9 @@ export function parseSource(content: string, options: ParseOptions = {}): ParseR
   const start = (globalThis as any).performance?.now?.() ?? Date.now();
   const kind: FileKind = detectFileKind(content, { filename: options.filename });
   try {
-    // Dynamic require inside try so that build/start doesn't crash if package absent.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const core = safeRequire('@yuxilabs/storymode-core');
-    if (core && typeof core.parse === 'function') {
+  // Dynamic ESM import inside try—if not present or fails, fallback.
+  const core = awaitDynamic('@yuxilabs/storymode-core');
+  if (core && typeof core.parse === 'function') {
       // We assume core.parse signature; adapt if actual differs.
       // Attempt to request tokens & scene index if supported by options.
       const coreResult = core.parse(content, {
@@ -53,8 +52,16 @@ export function parseSource(content: string, options: ParseOptions = {}): ParseR
   }
 }
 
-function safeRequire(mod: string): any | null {
-  try { return eval('require')(mod); } catch { return null; }
+function awaitDynamic(_mod: string): any | null {
+  // Synchronous facade for now; true dynamic ESM import cannot be sync.
+  // For MVP we rely on having the dependency installed; if not, return null.
+  try {
+    // eslint-disable-next-line no-eval
+    const dynamicImport = (0, eval)('import');
+    // Fire and forget: we cannot block synchronously; return null until future refactor uses async path.
+    dynamicImport(_mod).then(() => { /* noop: future async parse path */ });
+    return null; // force fallback if we cannot synchronously access
+  } catch { return null; }
 }
 
 function normalizeDiagnostics(raw: any[]): Diagnostic[] {

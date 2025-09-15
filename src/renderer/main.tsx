@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './styles.css';
 import { createRoot } from 'react-dom/client';
+import './monacoSetup';
 import { useStore, selectFile, selectParse, selectCompile, type RootState, type ParseState } from './store/store.js';
 import { Editor } from './components/Editor.js';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel.js';

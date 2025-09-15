@@ -16,9 +16,8 @@ export function compileSource(astOrContent: unknown | string, options: CompileOp
 
   // Try real compiler path first
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const compiler = safeRequire('@yuxilabs/storymode-compiler');
-    if (compiler && typeof compiler.compile === 'function') {
+  const compiler = awaitDynamic('@yuxilabs/storymode-compiler');
+  if (compiler && typeof compiler.compile === 'function') {
       let sourceAst: any = null;
       if (typeof astOrContent === 'string') {
         const parseResult: ParseResponse = parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
@@ -64,7 +63,13 @@ export function compileSource(astOrContent: unknown | string, options: CompileOp
   }
 }
 
-function safeRequire(mod: string): any | null { try { return eval('require')(mod); } catch { return null; } }
+function awaitDynamic(_mod: string): any | null {
+  try {
+    const dynamicImport = (0, eval)('import');
+    dynamicImport(_mod).then(() => { /* future async compile path */ });
+    return null;
+  } catch { return null; }
+}
 
 function normalizeStats(raw: any): CompileStats | null {
   if (!raw) return null;

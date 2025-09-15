@@ -1,16 +1,15 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
-import { readFile } from 'node:fs/promises';
+import { readFile, readFile as readFileAsync } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import url, { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import url from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseSource } from '../services/parseSource.js';
 import { compileSource } from '../services/compileSource.js';
 import type { ParseResponse, CompileResponse } from '../shared/types.js';
 
-// ESM replacements for __dirname / require
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const require = createRequire(import.meta.url);
 
 const isDev = process.env.NODE_ENV === 'development'; // retained if later we reintroduce dev-only tooling
 
@@ -19,7 +18,10 @@ async function createWindow() {
     width: 1280,
     height: 800,
     webPreferences: {
-  preload: path.join(__dirname, './preload/preload.js'),
+      // Dev: tsc outputs preload to dist/preload/preload.js (separate build); Prod: relative structure remains same.
+      preload: isDev
+        ? path.join(process.cwd(), 'dist', 'preload', 'main', 'preload', 'preload.js')
+        : path.join(__dirname, 'preload', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     }
@@ -31,7 +33,7 @@ async function createWindow() {
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
     // Prod: load built static files
-    const filePath = url.pathToFileURL(path.join(__dirname, '../../../renderer/index.html')).toString();
+  const filePath = pathToFileURL(path.join(__dirname, '../../renderer/index.html')).toString();
     await win.loadURL(filePath);
   }
 
@@ -96,8 +98,9 @@ function registerIpc() {
 function getVersion(pkgName: string): string {
   try {
     const pkgPath = path.join(process.cwd(), 'node_modules', pkgName, 'package.json');
-    const pkg = require(pkgPath);
-    return pkg.version || 'unknown';
+    const text = readFileSync(pkgPath, 'utf8');
+    const mod = JSON.parse(text);
+    return typeof mod.version === 'string' ? mod.version : 'unknown';
   } catch {
     return 'unknown';
   }

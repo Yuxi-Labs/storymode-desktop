@@ -8,6 +8,10 @@ export default defineConfig({
     outDir: path.resolve(__dirname, 'dist/renderer'),
     emptyOutDir: true,
   },
+  server: {
+    port: 5173,
+    strictPort: true
+  },
   plugins: [react()],
   resolve: {
     alias: {
