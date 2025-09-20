@@ -28,16 +28,16 @@ Key runtime code:
 ## IPC (Current Minimal)
 - `file:openDialog`
 - `file:read`
-- `parse:run` (mock for now)
-- `compile:run` (mock for now)
+- `parse:run` (async – dynamically imports `@yuxilabs/storymode-core` then falls back to mock)
+- `compile:run` (async – dynamically imports `@yuxilabs/storymode-compiler` then falls back to mock)
 - `app:versionInfo`
 
 ## Next Steps
-1. Replace mock parse/compile with real `@yuxilabs/storymode-core` / `@yuxilabs/storymode-compiler` integration.
-2. Add editor component (Monaco) and wire debounced parse.
-3. Implement diagnostics, AST, IR panels.
-4. File watch + reload prompt.
-5. Theme toggle + status bar metrics.
+1. Enhance parser/compiler adapters if actual library shapes diverge (current assumes `parse` & `compile` signatures).
+2. Inline diagnostics + Monaco token coloring once token taxonomy available.
+3. Implement richer AST/IR visualizations (tree diff, symbol tables).
+4. File watch + reload prompt using `watchFile` service.
+5. Performance instrumentation (parse/compile timing histograms, memory snapshot trigger).
 
 ## Documentation
 See the `doc/` folder for:
@@ -51,11 +51,12 @@ See the `doc/` folder for:
 ---
 Generated scaffold date: 2025-09-14
 
-## Integration Assumptions & Notes (Added During Editor Wiring)
+## Integration Assumptions & Notes (Async Dynamic Imports)
 
-- `@yuxilabs/storymode-core` presumed to expose a `parse(content, options)` function returning `{ ast, tokens?, diagnostics?, parseTimeMs?, sceneIndex? }`. The service layer wraps this dynamically; if the shape differs it gracefully falls back to a mock implementation and logs a console warning.
-- `@yuxilabs/storymode-compiler` presumed to expose `compile(ast, options)` returning `{ ir, diagnostics?, stats?, genTimeMs? }`. Fallback path builds a mock IR from token count.
-- Dynamic `require` is performed via `eval('require')` to avoid bundler static analysis issues and permit absence during early scaffolding.
+- `@yuxilabs/storymode-core` expected API: `parse(content, { filename, collectTokens, collectSceneIndex }) -> { ast, tokens?, diagnostics?, sceneIndex?, parseTimeMs? }`. Service validates presence of `parse` and normalizes tokens/diagnostics; on failure logs warning and returns mock parse (tokenized words & heuristic scene index).
+- `@yuxilabs/storymode-compiler` expected API: `compile(ast, { optimize }) -> { ir|result, diagnostics?, stats?, genTimeMs? }`. Service chains a real parse if given raw content; fallback builds trivial IR object with token-derived size.
+- Dynamic loading now uses native `import()` (async) inside the services; renderer hooks already await IPC responses, so UI remains responsive. If import throws (package missing or mismatch) the fallback executes silently with console warn tag `[parseSource]` / `[compileSource]`.
+- No synchronous facade remains; all parse/compile flows are Promise-based end-to-end (renderer hook -> preload ipcRenderer.invoke -> main IPC handler -> async service).
 - Renderer TypeScript config (`tsconfig.renderer.json`) needed explicit `types` entries for `react` and `react-dom` because specifying `types` narrows automatic inclusion; without them JSX types were missing.
 - ESM (NodeNext) requires explicit `.js` extensions for relative runtime imports. Source imports use `.js` pointing to emitted files (e.g. `../store/store.js`). Vite handles resolution in dev; TypeScript understands this under `moduleResolution: NodeNext`.
 - Store currently implements only `file`, `parse`, and minimal `ui` slices; other slices (compile, navigation, timings) described in `doc/STATE_MODEL.md` are deferred.

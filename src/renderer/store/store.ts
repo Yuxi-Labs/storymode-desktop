@@ -9,6 +9,9 @@ export interface FileState {
   isDirty: boolean;
   sizeBytes: number | null;
   lastModifiedMs: number | null;
+  lineCount?: number;
+  fileType?: 'story' | 'narrative' | 'unknown';
+  encoding?: string; // future
 }
 
 export interface ParseState {
@@ -25,8 +28,13 @@ export interface ParseState {
 
 export interface UIState {
   theme: 'light' | 'dark';
-  activePanel: 'editor' | 'diagnostics' | 'ast' | 'tokens' | 'ir';
+  activePanel: 'editor' | 'diagnostics' | 'ast' | 'tokens' | 'ir' | 'info' | 'preview';
   parseDebounceMs: number;
+  sidebarView: 'scenes' | 'explorer' | 'search' | 'outline';
+  sidebarCollapsed: boolean;
+  previewVisible: boolean; // inline preview split
+  caretLine?: number;
+  caretColumn?: number;
 }
 
 export interface CompileState {
@@ -53,27 +61,41 @@ export interface StoreState {
   setActivePanel: (panel: UIState['activePanel']) => void;
   beginCompile: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
+  // file mgmt
+  newFile: () => void;
+  closeFile: () => void;
+  markSaved: (path?: string) => void;
+  setFilePath: (path: string | null) => void;
+  setCaret: (line: number, column: number) => void;
+  updateDerivedFileStats: () => void;
 }
 
 export type RootState = StoreState;
 
 // --- Persistence helpers (renderer only) ---
-function loadPersistedUI(): Pick<UIState, 'theme' | 'activePanel' | 'parseDebounceMs'> {
+function loadPersistedUI(): Pick<UIState, 'theme' | 'activePanel' | 'parseDebounceMs' | 'sidebarView' | 'sidebarCollapsed' | 'previewVisible'> {
   try {
     if (typeof window === 'undefined' || !('localStorage' in window)) {
-      return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200 };
+      return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200, sidebarView: 'scenes', sidebarCollapsed: false, previewVisible: false };
     }
     const theme = (localStorage.getItem('storymode.theme') === 'dark') ? 'dark' : 'light';
     const panelRaw = localStorage.getItem('storymode.activePanel');
-    const allowed: UIState['activePanel'][] = ['editor', 'diagnostics', 'ast', 'tokens', 'ir'];
+  const allowed: UIState['activePanel'][] = ['editor', 'diagnostics', 'ast', 'tokens', 'ir', 'info', 'preview'];
     const activePanel: UIState['activePanel'] = allowed.includes(panelRaw as any) ? panelRaw as any : 'editor';
-    return { theme, activePanel, parseDebounceMs: 200 };
+    return {
+      theme,
+      activePanel,
+      parseDebounceMs: 200,
+      sidebarView: (localStorage.getItem('storymode.sidebarView') as any) || 'scenes',
+      sidebarCollapsed: localStorage.getItem('storymode.sidebarCollapsed') === 'true',
+      previewVisible: localStorage.getItem('storymode.previewVisible') === 'true'
+    };
   } catch {
-    return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200 };
+    return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200, sidebarView: 'scenes', sidebarCollapsed: false, previewVisible: false };
   }
 }
 
-const initialState: Omit<StoreState, 'openFile' | 'updateContent' | 'applyParseResult' | 'applyCompileResult' | 'setActivePanel' | 'beginCompile' | 'setTheme'> = {
+const initialState: Omit<StoreState, 'openFile' | 'updateContent' | 'applyParseResult' | 'applyCompileResult' | 'setActivePanel' | 'beginCompile' | 'setTheme' | 'newFile' | 'closeFile' | 'markSaved' | 'setFilePath' | 'setCaret' | 'updateDerivedFileStats'> = {
   file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: null, lastModifiedMs: null },
   parse: { version: 0, status: 'idle', ast: null, tokens: [], diagnostics: [], parseTimeMs: null, lastParsedAt: null, sceneIndex: [] },
   compile: { version: 0, status: 'idle', ir: null, diagnostics: [], stats: null, genTimeMs: null, lastCompiledAt: null },
@@ -143,7 +165,24 @@ export const useStore = create<StoreState>((set: (partial: Partial<StoreState> |
   }),
   beginCompile: () => set((state: StoreState) => ({ compile: { ...state.compile, status: 'compiling' } })),
   setActivePanel: (panel: UIState['activePanel']) => set((state: StoreState) => ({ ui: { ...state.ui, activePanel: panel } })),
-  setTheme: (theme: 'light' | 'dark') => set((state: StoreState) => ({ ui: { ...state.ui, theme } }))
+  setTheme: (theme: 'light' | 'dark') => set((state: StoreState) => ({ ui: { ...state.ui, theme } })),
+  newFile: () => set((_state: StoreState) => ({ file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: 0, lastModifiedMs: null } })),
+  closeFile: () => set((_state: StoreState) => ({ file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: null, lastModifiedMs: null } })),
+  markSaved: (path?: string) => set((state: StoreState) => ({ file: { ...state.file, path: path ?? state.file.path, lastDiskContent: state.file.content, isDirty: false } })),
+  setFilePath: (path: string | null) => set((state: StoreState) => ({ file: { ...state.file, path } })),
+  setCaret: (line: number, column: number) => set((state: StoreState) => ({ ui: { ...state.ui, caretLine: line, caretColumn: column } })),
+  updateDerivedFileStats: () => set((state: StoreState) => {
+    const content = state.file.content;
+    const lines = content ? content.split(/\r?\n/).length : 0;
+    const path = state.file.path;
+    let fileType: 'story' | 'narrative' | 'unknown' = 'unknown';
+    if (path?.endsWith('.story')) fileType = 'story'; else if (path?.endsWith('.narrative')) fileType = 'narrative';
+    return { file: { ...state.file, lineCount: lines, fileType } };
+  }),
+  // layout actions
+  toggleSidebar: () => set((state: StoreState) => ({ ui: { ...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed } })),
+  setSidebarView: (view: UIState['sidebarView']) => set((state: StoreState) => ({ ui: { ...state.ui, sidebarView: view } })),
+  togglePreview: () => set((state: StoreState) => ({ ui: { ...state.ui, previewVisible: !state.ui.previewVisible } }))
 }));
 
 // Persist changes (only runs in renderer)
@@ -151,10 +190,15 @@ if (typeof window !== 'undefined') {
   let prev = useStore.getState().ui;
   useStore.subscribe((state) => {
     const ui = state.ui;
-    if (ui.theme !== prev.theme || ui.activePanel !== prev.activePanel) {
+    if (ui.theme !== prev.theme || ui.activePanel !== prev.activePanel ||
+        ui.sidebarView !== prev.sidebarView || ui.sidebarCollapsed !== prev.sidebarCollapsed ||
+        ui.previewVisible !== prev.previewVisible) {
       try {
         localStorage.setItem('storymode.theme', ui.theme);
         localStorage.setItem('storymode.activePanel', ui.activePanel);
+        localStorage.setItem('storymode.sidebarView', ui.sidebarView);
+        localStorage.setItem('storymode.sidebarCollapsed', String(ui.sidebarCollapsed));
+        localStorage.setItem('storymode.previewVisible', String(ui.previewVisible));
       } catch { /* ignore quota or private mode errors */ }
       prev = ui;
     }

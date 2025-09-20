@@ -2,7 +2,7 @@
   "name": "storymode-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "StoryMode Desktop editor",
+  "description": "StoryMode editor",
   "main": "dist/main/main/main.js",
   "type": "module",
   "scripts": {

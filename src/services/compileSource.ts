@@ -8,7 +8,7 @@ export interface CompileOptions { optimize?: boolean; filename?: string; }
  * compileSource attempts to use @yuxilabs/storymode-compiler if available.
  * Fallback: derive a mock IR from parse tokens.
  */
-export function compileSource(astOrContent: unknown | string, options: CompileOptions = {}): CompileResponse {
+export async function compileSource(astOrContent: unknown | string, options: CompileOptions = {}): Promise<CompileResponse> {
   const start = (globalThis as any).performance?.now?.() ?? Date.now();
   let diagnostics: Diagnostic[] = [];
   let ir: unknown = null;
@@ -16,18 +16,19 @@ export function compileSource(astOrContent: unknown | string, options: CompileOp
 
   // Try real compiler path first
   try {
-  const compiler = awaitDynamic('@yuxilabs/storymode-compiler');
-  if (compiler && typeof compiler.compile === 'function') {
+    const compilerMod = await import('@yuxilabs/storymode-compiler');
+    const compiler: any = compilerMod;
+    if (compiler && typeof compiler.compile === 'function') {
       let sourceAst: any = null;
       if (typeof astOrContent === 'string') {
-        const parseResult: ParseResponse = parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
+        const parseResult: ParseResponse = await parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
         if (!parseResult.ok) return { ok: false, error: parseResult.error, diagnostics: parseResult.diagnostics };
         diagnostics = parseResult.diagnostics;
         sourceAst = parseResult.ast;
       } else {
         sourceAst = astOrContent;
       }
-      const compResult = compiler.compile(sourceAst, { optimize: options.optimize });
+      const compResult = await compiler.compile(sourceAst, { optimize: options.optimize });
       ir = compResult.ir ?? compResult.result ?? null;
       stats = normalizeStats(compResult.stats);
       diagnostics = diagnostics.concat(normalizeDiagnostics(compResult.diagnostics || []));
@@ -37,13 +38,13 @@ export function compileSource(astOrContent: unknown | string, options: CompileOp
     }
   } catch (err: any) {
     // eslint-disable-next-line no-console
-    console.warn('[compileSource] Falling back to mock implementation:', err?.message);
+    console.warn('[compileSource] dynamic import failed, using fallback:', err?.message);
   }
 
   // Fallback mock compile path
   try {
     if (typeof astOrContent === 'string') {
-      const parseResult: ParseResponse = parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
+  const parseResult: ParseResponse = await parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
       if (!parseResult.ok) return { ok: false, error: parseResult.error, diagnostics: parseResult.diagnostics };
       diagnostics = parseResult.diagnostics;
       ir = { kind: 'MockIR', approxSize: parseResult.tokens.length };
@@ -63,13 +64,6 @@ export function compileSource(astOrContent: unknown | string, options: CompileOp
   }
 }
 
-function awaitDynamic(_mod: string): any | null {
-  try {
-    const dynamicImport = (0, eval)('import');
-    dynamicImport(_mod).then(() => { /* future async compile path */ });
-    return null;
-  } catch { return null; }
-}
 
 function normalizeStats(raw: any): CompileStats | null {
   if (!raw) return null;

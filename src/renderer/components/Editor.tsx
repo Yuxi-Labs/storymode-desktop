@@ -13,6 +13,8 @@ function getMonaco() {
 export const Editor: React.FC = () => {
   const file = useStore(selectFile);
   const updateContent = useStore((s: StoreState) => s.updateContent);
+  const setCaret = useStore((s: StoreState) => (s as any).setCaret);
+  const updateDerivedFileStats = useStore((s: StoreState) => (s as any).updateDerivedFileStats);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<any>(null);
 
@@ -25,14 +27,18 @@ export const Editor: React.FC = () => {
       if (disposed) return;
       editorRef.current = monaco.editor.create(containerRef.current!, {
         value: file.content,
-        language: 'plaintext', // can be updated when tokenizer integrated
-        theme: 'vs-dark',
+        language: 'storymode',
+        theme: 'storymode-dark',
         automaticLayout: true,
         minimap: { enabled: false }
       });
       editorRef.current.onDidChangeModelContent(() => {
         const val = editorRef.current.getValue();
         updateContent(val);
+        updateDerivedFileStats();
+      });
+      editorRef.current.onDidChangeCursorPosition((e: any) => {
+        setCaret(e.position.lineNumber, e.position.column);
       });
     });
     return () => { cancel = true; if (editorRef.current) editorRef.current.dispose(); disposed = true; };

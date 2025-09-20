@@ -10,6 +10,6 @@
     "noEmit": false,
     "jsx": "react-jsx"
   },
-  "include": ["src/main/**/*", "src/services/**/*", "src/shared/**/*"],
+  "include": ["src/main/**/*", "src/services/**/*", "src/shared/**/*", "src/**/*.ts"],
   "exclude": ["src/renderer/**/*"]
 }

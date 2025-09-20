@@ -10,35 +10,31 @@ export interface ParseOptions { filename?: string; collectTokens?: boolean; coll
  * Fallback: previous mock tokenizer + scene index heuristics.
  * Returned shape remains consistent with ParseResponse.
  */
-export function parseSource(content: string, options: ParseOptions = {}): ParseResponse {
+export async function parseSource(content: string, options: ParseOptions = {}): Promise<ParseResponse> {
   const start = (globalThis as any).performance?.now?.() ?? Date.now();
   const kind: FileKind = detectFileKind(content, { filename: options.filename });
+  // Attempt dynamic import of real core parser
   try {
-  // Dynamic ESM import inside try—if not present or fails, fallback.
-  const core = awaitDynamic('@yuxilabs/storymode-core');
-  if (core && typeof core.parse === 'function') {
-      // We assume core.parse signature; adapt if actual differs.
-      // Attempt to request tokens & scene index if supported by options.
-      const coreResult = core.parse(content, {
+    const core = await import('@yuxilabs/storymode-core');
+    if (core && typeof (core as any).parse === 'function') {
+      const coreResult = await (core as any).parse(content, {
         filename: options.filename,
         collectTokens: options.collectTokens !== false,
         collectSceneIndex: options.collectSceneIndex !== false
       });
-      // Expecting shape: { ast, tokens, diagnostics, parseTimeMs?, sceneIndex? }
       const diagnostics: Diagnostic[] = normalizeDiagnostics(coreResult.diagnostics || []);
       const tokens: TokenInfo[] = (options.collectTokens === false ? [] : normalizeTokens(coreResult.tokens || []));
       const sceneIndex: SceneMeta[] | undefined = options.collectSceneIndex === false ? undefined : (coreResult.sceneIndex || undefined);
       const ast = coreResult.ast ?? null;
-      const parseTimeMs = coreResult.parseTimeMs ? coreResult.parseTimeMs : Math.round(performance.now() - start);
+      const end = (globalThis as any).performance?.now?.() ?? Date.now();
+      const parseTimeMs = coreResult.parseTimeMs ? coreResult.parseTimeMs : Math.round(end - start);
       return { ok: true, ast, tokens, diagnostics, parseTimeMs, sceneIndex };
     }
   } catch (err: any) {
-    // Fall through to mock path; we still want a successful (ok) result unless catastrophic.
     // eslint-disable-next-line no-console
-    console.warn('[parseSource] Falling back to mock implementation:', err?.message);
+    console.warn('[parseSource] dynamic import failed, using fallback:', err?.message);
   }
-
-  // Fallback mock implementation
+  // Fallback mock
   try {
     const diagnostics: Diagnostic[] = [];
     const tokens: TokenInfo[] = options.collectTokens === false ? [] : mockTokenize(content);
@@ -50,18 +46,6 @@ export function parseSource(content: string, options: ParseOptions = {}): ParseR
   } catch (err: any) {
     return { ok: false, error: err.message || 'Unknown parse error' };
   }
-}
-
-function awaitDynamic(_mod: string): any | null {
-  // Synchronous facade for now; true dynamic ESM import cannot be sync.
-  // For MVP we rely on having the dependency installed; if not, return null.
-  try {
-    // eslint-disable-next-line no-eval
-    const dynamicImport = (0, eval)('import');
-    // Fire and forget: we cannot block synchronously; return null until future refactor uses async path.
-    dynamicImport(_mod).then(() => { /* noop: future async parse path */ });
-    return null; // force fallback if we cannot synchronously access
-  } catch { return null; }
 }
 
 function normalizeDiagnostics(raw: any[]): Diagnostic[] {

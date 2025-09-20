@@ -10,6 +10,8 @@ declare global {
       parse(content: string, filename?: string): Promise<ParseResponse>;
       compile(content: string, filename?: string): Promise<CompileResponse>;
       versionInfo(): Promise<{ coreVersion: string; compilerVersion: string; appVersion: string }>; 
+      writeFile(path: string, content: string): Promise<{ ok: boolean; error?: string }>;
+      saveAsDialog(): Promise<{ canceled: boolean; path?: string }>;
     };
   }
 }

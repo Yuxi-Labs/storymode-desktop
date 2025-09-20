@@ -8,7 +8,9 @@ const api = {
   readFile: (path: string) => ipcRenderer.invoke('file:read', { path }),
   parse: (content: string, filename?: string) => ipcRenderer.invoke('parse:run', { content, filename }),
   compile: (content: string, filename?: string) => ipcRenderer.invoke('compile:run', { content, filename }),
-  versionInfo: () => ipcRenderer.invoke('app:versionInfo')
+  versionInfo: () => ipcRenderer.invoke('app:versionInfo'),
+  writeFile: (path: string, content: string) => ipcRenderer.invoke('file:write', { path, content }),
+  saveAsDialog: () => ipcRenderer.invoke('file:saveAsDialog')
 };
 
 // Bridge main menu IPC -> DOM CustomEvents for renderer (contextIsolation safe)
@@ -22,9 +24,24 @@ ipcRenderer.on('ui:toggleTheme', () => {
 ipcRenderer.on('ui:setPanel', (_e, panel) => {
   if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent('menu:setPanel', { detail: panel }));
 });
+ipcRenderer.on('ui:toggleSidebar', () => {
+  if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent('menu:toggleSidebar'));
+});
+ipcRenderer.on('ui:togglePreview', () => {
+  if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent('menu:togglePreview'));
+});
 ipcRenderer.on('build:recompile', () => {
   if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent('menu:recompile'));
 });
+ipcRenderer.on('ui:print', () => {
+  if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent('menu:print'));
+});
+// File operations from menu
+ipcRenderer.on('file:new', () => w.dispatchEvent(new CustomEvent('menu:fileNew')));
+ipcRenderer.on('file:save', () => w.dispatchEvent(new CustomEvent('menu:fileSave')));
+ipcRenderer.on('file:saveAs', () => w.dispatchEvent(new CustomEvent('menu:fileSaveAs')));
+ipcRenderer.on('file:close', () => w.dispatchEvent(new CustomEvent('menu:fileClose')));
+ipcRenderer.on('file:exportCompiled', () => w.dispatchEvent(new CustomEvent('menu:fileExportCompiled')));
 
 try {
   contextBridge.exposeInMainWorld('storymode', api);
