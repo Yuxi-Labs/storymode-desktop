@@ -186,8 +186,9 @@ function buildMenu(win: BrowserWindow) {
           click: () => {
             const parent = BrowserWindow.getAllWindows()[0];
             const aboutWin = new BrowserWindow({
-              width: 420,
-              height: 220,
+              width: 520,
+              height: 360,
+              useContentSize: true,
               resizable: false,
               minimizable: false,
               maximizable: false,
@@ -197,7 +198,9 @@ function buildMenu(win: BrowserWindow) {
               modal: !!parent,
               parent: parent || undefined,
               skipTaskbar: true,
-              movable: false,
+              movable: true,
+              show: false,
+              backgroundColor: '#0b0f14',
               webPreferences: {
                 contextIsolation: true,
                 nodeIntegration: false
@@ -230,11 +233,25 @@ function buildMenu(win: BrowserWindow) {
                 core: getVersion('@yuxilabs/storymode-core'),
                 compiler: getVersion('@yuxilabs/storymode-compiler')
               }
-            }).then(() => {
-              // Once loaded, show the about window centered over parent
-              if (parent) aboutWin.setPosition(parent.getBounds().x + Math.round((parent.getBounds().width - 420) / 2), parent.getBounds().y + Math.round((parent.getBounds().height - 220) / 2));
-              aboutWin.show();
             }).catch(err => console.error('[main] failed to load about.html', err));
+
+            // Show the About window only after it's ready to avoid white flash.
+            aboutWin.once('ready-to-show', () => {
+              try {
+                if (parent) {
+                  const pBounds = parent.getBounds();
+                  const aBounds = aboutWin.getBounds();
+                  const x = pBounds.x + Math.round((pBounds.width - aBounds.width) / 2);
+                  const y = pBounds.y + Math.round((pBounds.height - aBounds.height) / 2);
+                  aboutWin.setPosition(x, y);
+                } else {
+                  aboutWin.center();
+                }
+              } catch (err) {
+                // ignore positioning errors
+              }
+              aboutWin.show();
+            });
           }
         }
       ]
