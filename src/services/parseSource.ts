@@ -1,105 +1,173 @@
-// NOTE: Avoid importing Node built-in modules to keep types simple; use global performance/Date.now.
-import type { FileKind, TokenInfo, Diagnostic, SceneMeta, ParseResponse } from '../shared/types.js';
-import { detectFileKind } from './detectFileKind.js';
+import type {
+  FileKind,
+  TokenInfo,
+  Diagnostic,
+  SceneMeta,
+  ParseResponse,
+} from "../shared/types.js";
+import { detectFileKind } from "./detectFileKind.js";
 
-export interface ParseOptions { filename?: string; collectTokens?: boolean; collectSceneIndex?: boolean; }
-
-/**
- * parseSource integrates with @yuxilabs/storymode-core if available. It dynamically imports
- * the core library to avoid hard failure if the dependency shape changes or is missing.
- * Fallback: previous mock tokenizer + scene index heuristics.
- * Returned shape remains consistent with ParseResponse.
- */
-export async function parseSource(content: string, options: ParseOptions = {}): Promise<ParseResponse> {
-  const start = (globalThis as any).performance?.now?.() ?? Date.now();
-  const kind: FileKind = detectFileKind(content, { filename: options.filename });
-  // Attempt dynamic import of real core parser
-  try {
-    const core = await import('@yuxilabs/storymode-core');
-    if (core && typeof (core as any).parse === 'function') {
-      const coreResult = await (core as any).parse(content, {
-        filename: options.filename,
-        collectTokens: options.collectTokens !== false,
-        collectSceneIndex: options.collectSceneIndex !== false
-      });
-      const diagnostics: Diagnostic[] = normalizeDiagnostics(coreResult.diagnostics || []);
-      const tokens: TokenInfo[] = (options.collectTokens === false ? [] : normalizeTokens(coreResult.tokens || []));
-      const sceneIndex: SceneMeta[] | undefined = options.collectSceneIndex === false ? undefined : (coreResult.sceneIndex || undefined);
-      const ast = coreResult.ast ?? null;
-      const end = (globalThis as any).performance?.now?.() ?? Date.now();
-      const parseTimeMs = coreResult.parseTimeMs ? coreResult.parseTimeMs : Math.round(end - start);
-      return { ok: true, ast, tokens, diagnostics, parseTimeMs, sceneIndex };
-    }
-  } catch (err: any) {
-    // eslint-disable-next-line no-console
-    console.warn('[parseSource] dynamic import failed, using fallback:', err?.message);
-  }
-  // Fallback mock
-  try {
-    const diagnostics: Diagnostic[] = [];
-    const tokens: TokenInfo[] = options.collectTokens === false ? [] : mockTokenize(content);
-    const sceneIndex: SceneMeta[] | undefined = options.collectSceneIndex === false ? undefined : mockSceneIndex(content);
-    const ast = { kind: 'MockAst', nodeCount: tokens.length, fileKind: kind };
-    const end = (globalThis as any).performance?.now?.() ?? Date.now();
-    const parseTimeMs = Math.round(end - start);
-    return { ok: true, ast, tokens, diagnostics, parseTimeMs, sceneIndex };
-  } catch (err: any) {
-    return { ok: false, error: err.message || 'Unknown parse error' };
-  }
+export interface ParseOptions {
+  filename?: string;
+  collectTokens?: boolean;
+  collectSceneIndex?: boolean;
 }
 
-function normalizeDiagnostics(raw: any[]): Diagnostic[] {
+type CoreModule = typeof import("@yuxilabs/storymode-core");
+
+export async function parseSource(
+  content: string,
+  options: ParseOptions = {},
+): Promise<ParseResponse> {
+  const start = performance.now();
+  const kind: FileKind = detectFileKind(content, {
+    filename: options.filename,
+  });
+
+  try {
+    const core: CoreModule = await import("@yuxilabs/storymode-core");
+    const parseFn = selectParser(core, kind);
+    const result = parseFn(content);
+    const diagnostics = normalizeDiagnostics(result.diagnostics);
+    const includeTokens = options.collectTokens !== false;
+    const tokens = includeTokens ? normalizeTokens(result.tokens) : [];
+    const sceneIndex =
+      options.collectSceneIndex === false
+        ? undefined
+        : buildSceneIndex(result.ast, kind);
+    const ast = result.ast ?? null;
+    const end = performance.now();
+
+    return {
+      ok: true,
+      ast,
+      diagnostics,
+      tokens,
+      parseTimeMs: Math.round(end - start),
+      sceneIndex,
+      fileKind: kind,
+    };
+  } catch (err: any) {
+    console.warn(
+      "[parseSource] Falling back to heuristic parser:",
+      err?.message,
+    );
+  }
+
+  return fallbackParse(content, start, options, kind);
+}
+
+function selectParser(core: CoreModule, kind: FileKind) {
+  if (kind === "story" && typeof core.parseStory === "function") {
+    return core.parseStory;
+  }
+  if (
+    (kind === "narrative" || kind === "unknown") &&
+    typeof core.parseNarrative === "function"
+  ) {
+    return core.parseNarrative;
+  }
+  return core.parseNarrative;
+}
+
+function normalizeDiagnostics(raw: any[] | undefined): Diagnostic[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((d, i) => ({
-    severity: (d.severity === 'warning' || d.severity === 'info') ? d.severity : 'error',
-    message: String(d.message ?? 'Unknown'),
-    start: normalizePos(d.start),
-    end: normalizePos(d.end),
+  return raw.map((d) => ({
+    severity:
+      d.severity === "warning" || d.severity === "info" ? d.severity : "error",
+    message: String(d.message ?? "Unknown"),
+    start: {
+      line: d.range?.start?.line ?? 0,
+      column: d.range?.start?.column ?? 0,
+    },
+    end: {
+      line: d.range?.end?.line ?? 0,
+      column: d.range?.end?.column ?? 0,
+    },
     code: d.code ? String(d.code) : undefined,
-    _index: i // internal helpful index (not in type) - will be stripped by TS anyway
-  } as any)).map(({ _index, ...rest }) => rest);
-}
-
-function normalizeTokens(raw: any[]): TokenInfo[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.slice(0, 20000).map((t, i) => ({
-    index: typeof t.index === 'number' ? t.index : i,
-    type: String(t.type ?? 'unknown'),
-    lexeme: String(t.lexeme ?? '').slice(0, 64),
-    start: normalizePos(t.start),
-    end: normalizePos(t.end)
   }));
 }
 
-function normalizePos(p: any): { line: number; column: number } {
-  if (!p || typeof p.line !== 'number' || typeof p.column !== 'number') return { line: 0, column: 0 };
-  return { line: p.line, column: p.column };
+function normalizeTokens(raw: any[] | undefined): TokenInfo[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 20000).map((token, index) => ({
+    index,
+    type: String(token.type ?? "unknown"),
+    lexeme: String(token.value ?? "").slice(0, 128),
+    start: {
+      line: token.range?.start?.line ?? 0,
+      column: token.range?.start?.column ?? 0,
+    },
+    end: {
+      line: token.range?.end?.line ?? 0,
+      column: token.range?.end?.column ?? 0,
+    },
+  }));
+}
+
+function buildSceneIndex(ast: any, kind: FileKind): SceneMeta[] | undefined {
+  if (!ast) return [];
+  if (kind === "narrative" && Array.isArray(ast.scenes)) {
+    return ast.scenes
+      .map((scene: any) => ({
+        id: String(scene.id || ""),
+        title: scene.metadata?.title || scene.metadata?.label,
+        line: Math.max(0, (scene.range?.start?.line ?? 1) - 1),
+      }))
+      .filter((scene: SceneMeta) => scene.id.length > 0);
+  }
+  return [];
+}
+
+async function fallbackParse(
+  content: string,
+  start: number,
+  options: ParseOptions,
+  kind: FileKind,
+): Promise<ParseResponse> {
+  try {
+    const diagnostics: Diagnostic[] = [];
+    const includeTokens = options.collectTokens !== false;
+    const tokens: TokenInfo[] = includeTokens ? mockTokenize(content) : [];
+    const end = performance.now();
+
+    return {
+      ok: true,
+      ast: null,
+      diagnostics,
+      tokens,
+      parseTimeMs: Math.round(end - start),
+      sceneIndex: [],
+      fileKind: kind,
+    };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || "Unknown parse error" };
+  }
 }
 
 function mockTokenize(content: string): TokenInfo[] {
   const lines = content.split(/\r?\n/);
   const tokens: TokenInfo[] = [];
   let index = 0;
+
   for (let lineNo = 0; lineNo < lines.length; lineNo++) {
     const line = lines[lineNo];
-    const words = line.split(/\s+/).filter(Boolean);
-    let col = 0;
-    for (const w of words) {
-      const startCol = line.indexOf(w, col);
-      const endCol = startCol + w.length;
-      tokens.push({ index: index++, type: 'word', lexeme: w.slice(0, 32), start: { line: lineNo, column: startCol }, end: { line: lineNo, column: endCol } });
-      col = endCol;
+    const parts = line.split(/\s+/).filter(Boolean);
+    let cursor = 0;
+
+    for (const part of parts) {
+      const startCol = line.indexOf(part, cursor) + 1;
+      const endCol = startCol + part.length;
+      tokens.push({
+        index: index++,
+        type: "word",
+        lexeme: part.slice(0, 64),
+        start: { line: lineNo + 1, column: startCol },
+        end: { line: lineNo + 1, column: endCol },
+      });
+      cursor = endCol - 1;
     }
   }
-  return tokens.slice(0, 5000); // cap
-}
 
-function mockSceneIndex(content: string): SceneMeta[] {
-  const result: SceneMeta[] = [];
-  const lines = content.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^\s*scene\s+(\w+)/.exec(lines[i]);
-    if (m) result.push({ id: m[1], line: i });
-  }
-  return result;
+  return tokens.slice(0, 5000);
 }

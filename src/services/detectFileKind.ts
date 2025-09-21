@@ -1,18 +1,35 @@
-import type { FileKind } from '../shared/types.js';
+import type { FileKind } from "../shared/types.js";
 
-export interface DetectOptions { filename?: string; heuristics?: boolean; }
+export interface DetectOptions {
+  filename?: string;
+  heuristics?: boolean;
+}
 
-export function detectFileKind(content: string, opts: DetectOptions = {}): FileKind {
+export function detectFileKind(
+  content: string,
+  opts: DetectOptions = {},
+): FileKind {
   const { filename, heuristics = true } = opts;
-  if (filename?.endsWith('.story')) return 'story';
-  if (heuristics) {
-    const trimmed = content.trimStart();
-    if (trimmed.startsWith('{')) {
-      try { JSON.parse(content); return 'json'; } catch {/* ignore */}
+  if (filename?.endsWith(".story")) return "story";
+  if (filename?.endsWith(".narrative")) return "narrative";
+  if (!heuristics) return "unknown";
+
+  const sample = content.slice(0, 8000);
+  const trimmed = sample.trimStart();
+  if (trimmed.startsWith("::story")) return "story";
+  if (trimmed.startsWith("::narrative")) return "narrative";
+
+  if (/^\s*::\s*narrative\b/im.test(sample)) return "narrative";
+  if (/^\s*::\s*story\b/im.test(sample)) return "story";
+
+  if (trimmed.startsWith("{")) {
+    try {
+      JSON.parse(content);
+      return "json";
+    } catch {
+      // ignore
     }
-    // crude heuristic: presence of 'scene' keyword at line starts
-    const first200 = content.slice(0, 5000);
-    if (/^\s*scene\s+/m.test(first200)) return 'story';
   }
-  return 'unknown';
+
+  return "unknown";
 }

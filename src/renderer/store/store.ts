@@ -1,7 +1,14 @@
-import { create } from 'zustand';
-import type { Diagnostic, TokenInfo, SceneMeta, ParseResponse, CompileResponse, CompileStats } from '../../shared/types.js';
+import { create } from "zustand";
+import type {
+  Diagnostic,
+  TokenInfo,
+  SceneMeta,
+  ParseResponse,
+  CompileResponse,
+  CompileStats,
+  FileKind,
+} from "../../shared/types.js";
 
-// Simplified initial slices based on STATE_MODEL.md
 export interface FileState {
   path: string | null;
   content: string;
@@ -10,36 +17,25 @@ export interface FileState {
   sizeBytes: number | null;
   lastModifiedMs: number | null;
   lineCount?: number;
-  fileType?: 'story' | 'narrative' | 'unknown';
-  encoding?: string; // future
+  fileType?: "story" | "narrative" | "unknown";
+  encoding?: string;
 }
 
 export interface ParseState {
   version: number;
-  status: 'idle' | 'parsing' | 'ready' | 'error';
+  status: "idle" | "parsing" | "ready" | "error";
   ast: unknown | null;
   tokens: TokenInfo[];
   diagnostics: Diagnostic[];
   parseTimeMs: number | null;
   error?: string;
   lastParsedAt: number | null;
-  sceneIndex: SceneMeta[];
-}
-
-export interface UIState {
-  theme: 'light' | 'dark';
-  activePanel: 'editor' | 'diagnostics' | 'ast' | 'tokens' | 'ir' | 'info' | 'preview';
-  parseDebounceMs: number;
-  sidebarView: 'scenes' | 'explorer' | 'search' | 'outline';
-  sidebarCollapsed: boolean;
-  previewVisible: boolean; // inline preview split
-  caretLine?: number;
-  caretColumn?: number;
+  fileKind?: FileKind;
 }
 
 export interface CompileState {
   version: number;
-  status: 'idle' | 'compiling' | 'ready' | 'error';
+  status: "idle" | "compiling" | "ready" | "error";
   ir: unknown | null;
   diagnostics: Diagnostic[];
   stats: CompileStats | null;
@@ -48,158 +44,369 @@ export interface CompileState {
   lastCompiledAt: number | null;
 }
 
+export interface UIState {
+  theme: "light" | "dark";
+  activePanel: "diagnostics" | "ast" | "ir" | "info" | "preview" | "tokens";
+  parseDebounceMs: number;
+  sidebarView: "explorer" | "outline" | "search";
+  sidebarCollapsed: boolean;
+  previewVisible: boolean;
+  caretLine?: number;
+  caretColumn?: number;
+}
+
+export interface NavigationState {
+  sceneIndex: SceneMeta[];
+  lastJumpSceneId?: string;
+  pendingJump?: string;
+}
+
+export interface TimingState {
+  startupAt: number;
+  lastUserInputAt: number | null;
+  lastParseScheduledAt: number | null;
+}
+
 export interface StoreState {
   file: FileState;
   parse: ParseState;
   compile: CompileState;
   ui: UIState;
-  // Actions
-  openFile: (path: string | undefined, content: string, sizeBytes?: number, lastModifiedMs?: number | null) => void;
+  navigation: NavigationState;
+  timings: TimingState;
+  openFile: (
+    path: string | undefined,
+    content: string,
+    sizeBytes?: number,
+    lastModifiedMs?: number | null,
+  ) => void;
   updateContent: (text: string) => void;
+  requestParse: () => void;
   applyParseResult: (result: ParseResponse) => void;
+  requestCompile: () => void;
   applyCompileResult: (result: CompileResponse) => void;
-  setActivePanel: (panel: UIState['activePanel']) => void;
-  beginCompile: () => void;
-  setTheme: (theme: 'light' | 'dark') => void;
-  // file mgmt
+  setActivePanel: (panel: UIState["activePanel"]) => void;
+  setTheme: (theme: "light" | "dark") => void;
   newFile: () => void;
   closeFile: () => void;
   markSaved: (path?: string) => void;
   setFilePath: (path: string | null) => void;
   setCaret: (line: number, column: number) => void;
   updateDerivedFileStats: () => void;
+  setSceneIndex: (scenes: SceneMeta[]) => void;
+  recordJump: (sceneId: string) => void;
+  noteUserInput: () => void;
+  scheduleParseDebounce: () => void;
+  toggleSidebar: () => void;
+  setSidebarView: (view: UIState["sidebarView"]) => void;
+  togglePreview: () => void;
 }
 
 export type RootState = StoreState;
 
-// --- Persistence helpers (renderer only) ---
-function loadPersistedUI(): Pick<UIState, 'theme' | 'activePanel' | 'parseDebounceMs' | 'sidebarView' | 'sidebarCollapsed' | 'previewVisible'> {
+function loadPersistedUI(): UIState {
   try {
-    if (typeof window === 'undefined' || !('localStorage' in window)) {
-      return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200, sidebarView: 'scenes', sidebarCollapsed: false, previewVisible: false };
+    if (typeof window === "undefined" || !("localStorage" in window)) {
+      return {
+        theme: "dark",
+        activePanel: "diagnostics",
+        parseDebounceMs: 200,
+        sidebarView: "explorer",
+        sidebarCollapsed: false,
+        previewVisible: false,
+      };
     }
-    const theme = (localStorage.getItem('storymode.theme') === 'dark') ? 'dark' : 'light';
-    const panelRaw = localStorage.getItem('storymode.activePanel');
-  const allowed: UIState['activePanel'][] = ['editor', 'diagnostics', 'ast', 'tokens', 'ir', 'info', 'preview'];
-    const activePanel: UIState['activePanel'] = allowed.includes(panelRaw as any) ? panelRaw as any : 'editor';
+    const theme =
+      localStorage.getItem("storymode.theme") === "light" ? "light" : "dark";
+    const panelRaw = localStorage.getItem("storymode.activePanel");
+    const allowed: UIState["activePanel"][] = [
+      "diagnostics",
+      "ast",
+      "ir",
+      "info",
+      "preview",
+      "tokens",
+    ];
+    const activePanel = allowed.includes(panelRaw as any)
+      ? (panelRaw as UIState["activePanel"])
+      : "diagnostics";
     return {
       theme,
       activePanel,
       parseDebounceMs: 200,
-      sidebarView: (localStorage.getItem('storymode.sidebarView') as any) || 'scenes',
-      sidebarCollapsed: localStorage.getItem('storymode.sidebarCollapsed') === 'true',
-      previewVisible: localStorage.getItem('storymode.previewVisible') === 'true'
+      sidebarView:
+        (localStorage.getItem(
+          "storymode.sidebarView",
+        ) as UIState["sidebarView"]) || "explorer",
+      sidebarCollapsed:
+        localStorage.getItem("storymode.sidebarCollapsed") === "true",
+      previewVisible:
+        localStorage.getItem("storymode.previewVisible") === "true",
     };
   } catch {
-    return { theme: 'light', activePanel: 'editor', parseDebounceMs: 200, sidebarView: 'scenes', sidebarCollapsed: false, previewVisible: false };
+    return {
+      theme: "dark",
+      activePanel: "diagnostics",
+      parseDebounceMs: 200,
+      sidebarView: "explorer",
+      sidebarCollapsed: false,
+      previewVisible: false,
+    };
   }
 }
 
-const initialState: Omit<StoreState, 'openFile' | 'updateContent' | 'applyParseResult' | 'applyCompileResult' | 'setActivePanel' | 'beginCompile' | 'setTheme' | 'newFile' | 'closeFile' | 'markSaved' | 'setFilePath' | 'setCaret' | 'updateDerivedFileStats'> = {
-  file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: null, lastModifiedMs: null },
-  parse: { version: 0, status: 'idle', ast: null, tokens: [], diagnostics: [], parseTimeMs: null, lastParsedAt: null, sceneIndex: [] },
-  compile: { version: 0, status: 'idle', ir: null, diagnostics: [], stats: null, genTimeMs: null, lastCompiledAt: null },
-  ui: loadPersistedUI()
+const initialState = {
+  file: {
+    path: null,
+    content: "",
+    lastDiskContent: "",
+    isDirty: false,
+    sizeBytes: null,
+    lastModifiedMs: null,
+  },
+  parse: {
+    version: 0,
+    status: "idle",
+    ast: null,
+    tokens: [],
+    diagnostics: [],
+    parseTimeMs: null,
+    lastParsedAt: null,
+  },
+  compile: {
+    version: 0,
+    status: "idle",
+    ir: null,
+    diagnostics: [],
+    stats: null,
+    genTimeMs: null,
+    lastCompiledAt: null,
+  },
+  ui: loadPersistedUI(),
+  navigation: { sceneIndex: [] },
+  timings: {
+    startupAt: Date.now(),
+    lastUserInputAt: null,
+    lastParseScheduledAt: null,
+  },
 };
 
-export const useStore = create<StoreState>((set: (partial: Partial<StoreState> | ((state: StoreState) => Partial<StoreState>)) => void, _get: () => StoreState) => ({
+export const useStore = create<StoreState>((set, get) => ({
   ...initialState,
-  openFile: (path: string | undefined, content: string, sizeBytes?: number, lastModifiedMs?: number | null) => set((state: StoreState) => ({
-    file: {
-      path: path ?? null,
-      content,
-      lastDiskContent: content,
-      isDirty: false,
-      sizeBytes: sizeBytes ?? content.length,
-      lastModifiedMs: lastModifiedMs ?? null
-    },
-    parse: { ...state.parse, status: 'idle' }
-  })),
-  updateContent: (text: string) => set((state: StoreState) => ({
-    file: { ...state.file, content: text, isDirty: text !== state.file.lastDiskContent }
-  })),
-  applyParseResult: (result: ParseResponse) => set((state: StoreState) => {
-    if (!result) return {} as any;
-    if (result.ok) {
-      return {
-        parse: {
-          ...state.parse,
+  openFile: (path, content, sizeBytes, lastModifiedMs) => {
+    set((state) => ({
+      file: {
+        path: path ?? null,
+        content,
+        lastDiskContent: content,
+        isDirty: false,
+        sizeBytes: sizeBytes ?? content.length,
+        lastModifiedMs: lastModifiedMs ?? null,
+      },
+      parse: {
+        ...state.parse,
+        status: "idle",
+        version: state.parse.version + 1,
+        ast: null,
+        diagnostics: [],
+        tokens: [],
+        parseTimeMs: null,
+      },
+      navigation: { sceneIndex: [] },
+    }));
+  },
+  updateContent: (text: string) => {
+    set((state) => ({
+      file: {
+        ...state.file,
+        content: text,
+        isDirty: text !== state.file.lastDiskContent,
+      },
+    }));
+    get().noteUserInput();
+  },
+  requestParse: () => {
+    set((state) => ({
+      parse: { ...state.parse, status: "parsing", error: undefined },
+      timings: { ...state.timings, lastParseScheduledAt: Date.now() },
+    }));
+  },
+  applyParseResult: (result: ParseResponse) => {
+    if (!result) return;
+    set((state) => {
+      if (result.ok) {
+        const scenes = result.sceneIndex ?? [];
+        return {
+          parse: {
+            ...state.parse,
             version: state.parse.version + 1,
-            status: 'ready',
+            status: "ready",
             ast: result.ast,
             tokens: result.tokens || [],
             diagnostics: result.diagnostics || [],
             parseTimeMs: result.parseTimeMs ?? null,
             lastParsedAt: Date.now(),
             error: undefined,
-            sceneIndex: result.sceneIndex || []
-        }
-      };
-    } else {
+            fileKind: result.fileKind ?? state.parse.fileKind,
+          },
+          navigation: {
+            ...state.navigation,
+            sceneIndex: scenes,
+            pendingJump: undefined,
+          },
+        };
+      }
       return {
-        parse: { ...state.parse, status: 'error', error: result.error || 'Parse failed', lastParsedAt: Date.now() }
+        parse: {
+          ...state.parse,
+          status: "error",
+          error: result.error || "Parse failed",
+          lastParsedAt: Date.now(),
+        },
       };
-    }
-  }),
-  applyCompileResult: (result: CompileResponse) => set((state: StoreState) => {
-    if (!result) return {} as any;
-    if (result.ok) {
+    });
+  },
+  requestCompile: () =>
+    set((state) => ({
+      compile: { ...state.compile, status: "compiling", error: undefined },
+    })),
+  applyCompileResult: (result: CompileResponse) => {
+    if (!result) return;
+    set((state) => {
+      if (result.ok) {
+        return {
+          compile: {
+            ...state.compile,
+            version: state.compile.version + 1,
+            status: "ready",
+            ir: result.ir,
+            diagnostics: result.diagnostics || [],
+            stats: result.stats || null,
+            genTimeMs: result.genTimeMs ?? result.stats?.genTimeMs ?? null,
+            error: undefined,
+            lastCompiledAt: Date.now(),
+          },
+        };
+      }
       return {
         compile: {
           ...state.compile,
-          version: state.compile.version + 1,
-          status: 'ready',
-          ir: result.ir,
+          status: "error",
+          error: result.error || "Compile failed",
           diagnostics: result.diagnostics || [],
-          stats: result.stats || null,
-          genTimeMs: result.genTimeMs ?? (result.stats?.genTimeMs ?? null),
-          error: undefined,
-          lastCompiledAt: Date.now()
-        }
+          lastCompiledAt: Date.now(),
+          ir: null,
+        },
       };
-    } else {
-      return {
-        compile: { ...state.compile, status: 'error', error: result.error || 'Compile failed', lastCompiledAt: Date.now(), ir: null }
-      };
-    }
-  }),
-  beginCompile: () => set((state: StoreState) => ({ compile: { ...state.compile, status: 'compiling' } })),
-  setActivePanel: (panel: UIState['activePanel']) => set((state: StoreState) => ({ ui: { ...state.ui, activePanel: panel } })),
-  setTheme: (theme: 'light' | 'dark') => set((state: StoreState) => ({ ui: { ...state.ui, theme } })),
-  newFile: () => set((_state: StoreState) => ({ file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: 0, lastModifiedMs: null } })),
-  closeFile: () => set((_state: StoreState) => ({ file: { path: null, content: '', lastDiskContent: '', isDirty: false, sizeBytes: null, lastModifiedMs: null } })),
-  markSaved: (path?: string) => set((state: StoreState) => ({ file: { ...state.file, path: path ?? state.file.path, lastDiskContent: state.file.content, isDirty: false } })),
-  setFilePath: (path: string | null) => set((state: StoreState) => ({ file: { ...state.file, path } })),
-  setCaret: (line: number, column: number) => set((state: StoreState) => ({ ui: { ...state.ui, caretLine: line, caretColumn: column } })),
-  updateDerivedFileStats: () => set((state: StoreState) => {
-    const content = state.file.content;
-    const lines = content ? content.split(/\r?\n/).length : 0;
-    const path = state.file.path;
-    let fileType: 'story' | 'narrative' | 'unknown' = 'unknown';
-    if (path?.endsWith('.story')) fileType = 'story'; else if (path?.endsWith('.narrative')) fileType = 'narrative';
-    return { file: { ...state.file, lineCount: lines, fileType } };
-  }),
-  // layout actions
-  toggleSidebar: () => set((state: StoreState) => ({ ui: { ...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed } })),
-  setSidebarView: (view: UIState['sidebarView']) => set((state: StoreState) => ({ ui: { ...state.ui, sidebarView: view } })),
-  togglePreview: () => set((state: StoreState) => ({ ui: { ...state.ui, previewVisible: !state.ui.previewVisible } }))
+    });
+  },
+  setActivePanel: (panel) =>
+    set((state) => ({ ui: { ...state.ui, activePanel: panel } })),
+  setTheme: (theme) => set((state) => ({ ui: { ...state.ui, theme } })),
+  newFile: () =>
+    set(() => ({
+      file: {
+        path: null,
+        content: "",
+        lastDiskContent: "",
+        isDirty: false,
+        sizeBytes: 0,
+        lastModifiedMs: null,
+      },
+    })),
+  closeFile: () =>
+    set(() => ({
+      file: {
+        path: null,
+        content: "",
+        lastDiskContent: "",
+        isDirty: false,
+        sizeBytes: null,
+        lastModifiedMs: null,
+      },
+    })),
+  markSaved: (path) =>
+    set((state) => ({
+      file: {
+        ...state.file,
+        path: path ?? state.file.path,
+        lastDiskContent: state.file.content,
+        isDirty: false,
+      },
+    })),
+  setFilePath: (path) => set((state) => ({ file: { ...state.file, path } })),
+  setCaret: (line, column) =>
+    set((state) => ({
+      ui: { ...state.ui, caretLine: line, caretColumn: column },
+    })),
+  updateDerivedFileStats: () =>
+    set((state) => {
+      const content = state.file.content;
+      const lines = content ? content.split(/\r?\n/).length : 0;
+      const path = state.file.path;
+      let fileType: "story" | "narrative" | "unknown" = "unknown";
+      if (path?.endsWith(".story")) fileType = "story";
+      else if (path?.endsWith(".narrative")) fileType = "narrative";
+      return { file: { ...state.file, lineCount: lines, fileType } };
+    }),
+  setSceneIndex: (scenes) =>
+    set((state) => ({
+      navigation: { ...state.navigation, sceneIndex: scenes },
+    })),
+  recordJump: (sceneId) =>
+    set((state) => ({
+      navigation: {
+        ...state.navigation,
+        lastJumpSceneId: sceneId,
+        pendingJump: undefined,
+      },
+    })),
+  noteUserInput: () =>
+    set((state) => ({
+      timings: { ...state.timings, lastUserInputAt: Date.now() },
+    })),
+  scheduleParseDebounce: () =>
+    set((state) => ({
+      timings: { ...state.timings, lastParseScheduledAt: Date.now() },
+    })),
+  toggleSidebar: () =>
+    set((state) => ({
+      ui: { ...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed },
+    })),
+  setSidebarView: (view) =>
+    set((state) => ({ ui: { ...state.ui, sidebarView: view } })),
+  togglePreview: () =>
+    set((state) => ({
+      ui: { ...state.ui, previewVisible: !state.ui.previewVisible },
+    })),
 }));
 
-// Persist changes (only runs in renderer)
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   let prev = useStore.getState().ui;
   useStore.subscribe((state) => {
     const ui = state.ui;
-    if (ui.theme !== prev.theme || ui.activePanel !== prev.activePanel ||
-        ui.sidebarView !== prev.sidebarView || ui.sidebarCollapsed !== prev.sidebarCollapsed ||
-        ui.previewVisible !== prev.previewVisible) {
+    if (
+      ui.theme !== prev.theme ||
+      ui.activePanel !== prev.activePanel ||
+      ui.sidebarView !== prev.sidebarView ||
+      ui.sidebarCollapsed !== prev.sidebarCollapsed ||
+      ui.previewVisible !== prev.previewVisible
+    ) {
       try {
-        localStorage.setItem('storymode.theme', ui.theme);
-        localStorage.setItem('storymode.activePanel', ui.activePanel);
-        localStorage.setItem('storymode.sidebarView', ui.sidebarView);
-        localStorage.setItem('storymode.sidebarCollapsed', String(ui.sidebarCollapsed));
-        localStorage.setItem('storymode.previewVisible', String(ui.previewVisible));
-      } catch { /* ignore quota or private mode errors */ }
+        localStorage.setItem("storymode.theme", ui.theme);
+        localStorage.setItem("storymode.activePanel", ui.activePanel);
+        localStorage.setItem("storymode.sidebarView", ui.sidebarView);
+        localStorage.setItem(
+          "storymode.sidebarCollapsed",
+          String(ui.sidebarCollapsed),
+        );
+        localStorage.setItem(
+          "storymode.previewVisible",
+          String(ui.previewVisible),
+        );
+      } catch {
+        // ignore quota errors
+      }
       prev = ui;
     }
   });
@@ -209,3 +416,4 @@ export const selectFile = (s: StoreState) => s.file;
 export const selectParse = (s: StoreState) => s.parse;
 export const selectCompile = (s: StoreState) => s.compile;
 export const selectUI = (s: StoreState) => s.ui;
+export const selectNavigation = (s: StoreState) => s.navigation;

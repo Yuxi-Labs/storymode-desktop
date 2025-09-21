@@ -1,92 +1,173 @@
-// Use global performance/Date.now only; avoid direct Node built-in imports for type simplicity.
-import type { CompileResponse, CompileStats, Diagnostic, ParseResponse } from '../shared/types.js';
-import { parseSource } from './parseSource.js';
+import type {
+  CompileResponse,
+  CompileStats,
+  Diagnostic,
+  FileKind,
+  ParseResponse,
+} from "../shared/types.js";
+import { parseSource } from "./parseSource.js";
+import { detectFileKind } from "./detectFileKind.js";
 
-export interface CompileOptions { optimize?: boolean; filename?: string; }
-
-/**
- * compileSource attempts to use @yuxilabs/storymode-compiler if available.
- * Fallback: derive a mock IR from parse tokens.
- */
-export async function compileSource(astOrContent: unknown | string, options: CompileOptions = {}): Promise<CompileResponse> {
-  const start = (globalThis as any).performance?.now?.() ?? Date.now();
-  let diagnostics: Diagnostic[] = [];
-  let ir: unknown = null;
-  let stats: CompileStats | null = null;
-
-  // Try real compiler path first
-  try {
-    const compilerMod = await import('@yuxilabs/storymode-compiler');
-    const compiler: any = compilerMod;
-    if (compiler && typeof compiler.compile === 'function') {
-      let sourceAst: any = null;
-      if (typeof astOrContent === 'string') {
-        const parseResult: ParseResponse = await parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
-        if (!parseResult.ok) return { ok: false, error: parseResult.error, diagnostics: parseResult.diagnostics };
-        diagnostics = parseResult.diagnostics;
-        sourceAst = parseResult.ast;
-      } else {
-        sourceAst = astOrContent;
-      }
-      const compResult = await compiler.compile(sourceAst, { optimize: options.optimize });
-      ir = compResult.ir ?? compResult.result ?? null;
-      stats = normalizeStats(compResult.stats);
-      diagnostics = diagnostics.concat(normalizeDiagnostics(compResult.diagnostics || []));
-      const genTimeMs = compResult.genTimeMs ? compResult.genTimeMs : Math.round(performance.now() - start);
-      if (stats) stats.genTimeMs = genTimeMs;
-      return { ok: true, ir, diagnostics, stats: stats || { irNodeCount: 0, symbolCount: 0, genTimeMs }, genTimeMs };
-    }
-  } catch (err: any) {
-    // eslint-disable-next-line no-console
-    console.warn('[compileSource] dynamic import failed, using fallback:', err?.message);
-  }
-
-  // Fallback mock compile path
-  try {
-    if (typeof astOrContent === 'string') {
-  const parseResult: ParseResponse = await parseSource(astOrContent, { filename: options.filename, collectTokens: true, collectSceneIndex: true });
-      if (!parseResult.ok) return { ok: false, error: parseResult.error, diagnostics: parseResult.diagnostics };
-      diagnostics = parseResult.diagnostics;
-      ir = { kind: 'MockIR', approxSize: parseResult.tokens.length };
-      stats = { irNodeCount: parseResult.tokens.length, symbolCount: 0, genTimeMs: 0 };
-    } else if (astOrContent && typeof astOrContent === 'object') {
-      ir = { kind: 'MockIR', fromAst: true };
-      stats = { irNodeCount: 0, symbolCount: 0, genTimeMs: 0 };
-    } else {
-      return { ok: false, error: 'Invalid input for compile' };
-    }
-    const end = (globalThis as any).performance?.now?.() ?? Date.now();
-    const genTimeMs = Math.round(end - start);
-    if (stats) stats.genTimeMs = genTimeMs;
-    return { ok: true, ir, diagnostics, stats: stats!, genTimeMs };
-  } catch (err: any) {
-    return { ok: false, error: err.message || 'Unknown compile error' };
-  }
+export interface CompileOptions {
+  filename?: string;
+  kind?: FileKind;
+  contentKindHint?: FileKind;
 }
 
+type CompilerModule = typeof import("@yuxilabs/storymode-compiler");
 
-function normalizeStats(raw: any): CompileStats | null {
-  if (!raw) return null;
+type CompileFn = (
+  ast: any,
+  options?: Record<string, unknown>,
+) => { ir: unknown; diagnostics: any[]; stats: any };
+
+/**
+ * Uses @yuxilabs/storymode-compiler when available. Falls back to a minimal mock IR when
+ * the dependency is unavailable.
+ */
+export async function compileSource(
+  input: unknown,
+  options: CompileOptions = {},
+): Promise<CompileResponse> {
+  const start = performance.now();
+  let diagnostics: Diagnostic[] = [];
+  let ast: any = null;
+  let kind: FileKind = options.kind ?? options.contentKindHint ?? "unknown";
+  let sourceText: string | undefined;
+
+  if (typeof input === "string") {
+    sourceText = input;
+    kind =
+      options.kind ?? detectFileKind(input, { filename: options.filename });
+  } else if (input && typeof input === "object") {
+    ast = input;
+    if (typeof (input as any).kind === "string") {
+      if ((input as any).kind === "StoryFile") kind = "story";
+      else if ((input as any).kind === "NarrativeFile") kind = "narrative";
+    }
+  } else {
+    return { ok: false, error: "Invalid input for compile" };
+  }
+
+  try {
+    const compiler: CompilerModule = await import(
+      "@yuxilabs/storymode-compiler"
+    );
+    const compileFn: CompileFn = selectCompiler(compiler, kind);
+
+    if (!ast && typeof sourceText === "string") {
+      const parseResult: ParseResponse = await parseSource(sourceText, {
+        filename: options.filename,
+        collectTokens: true,
+        collectSceneIndex: true,
+      });
+      if (!parseResult.ok)
+        return {
+          ok: false,
+          error: parseResult.error,
+          diagnostics: parseResult.diagnostics,
+        };
+      ast = parseResult.ast;
+      diagnostics = diagnostics.concat(parseResult.diagnostics);
+      kind = parseResult.fileKind ?? kind;
+    }
+
+    if (!ast) {
+      return { ok: false, error: "Compile requires AST but none was provided" };
+    }
+
+    const result = compileFn(ast, {
+      embedCoreVersion: true,
+      normalizeMetadata: "join",
+    });
+    diagnostics = diagnostics.concat(normalizeDiagnostics(result.diagnostics));
+    const stats = normalizeStats(result.stats, start);
+    return {
+      ok: true,
+      ir: result.ir,
+      diagnostics,
+      stats,
+      genTimeMs: stats.genTimeMs,
+    };
+  } catch (err: any) {
+    console.warn(
+      "[compileSource] Falling back to mock compiler:",
+      err?.message,
+    );
+  }
+
+  return fallbackCompile(sourceText, ast, start, diagnostics);
+}
+
+function selectCompiler(mod: CompilerModule, kind: FileKind): CompileFn {
+  if (kind === "story" && typeof mod.compileStory === "function")
+    return mod.compileStory;
+  if (
+    (kind === "narrative" || kind === "unknown") &&
+    typeof mod.compileNarrative === "function"
+  )
+    return mod.compileNarrative;
+  return mod.compileNarrative;
+}
+
+function normalizeDiagnostics(raw: any[] | undefined): Diagnostic[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((d) => ({
+    severity:
+      d.severity === "warning" || d.severity === "info" ? d.severity : "error",
+    message: String(d.message ?? "Unknown"),
+    start: {
+      line: d.range?.start?.line ?? 0,
+      column: d.range?.start?.column ?? 0,
+    },
+    end: { line: d.range?.end?.line ?? 0, column: d.range?.end?.column ?? 0 },
+    code: d.code ? String(d.code) : undefined,
+  }));
+}
+
+function normalizeStats(raw: any, start: number): CompileStats {
+  const duration =
+    typeof raw?.durationMs === "number"
+      ? raw.durationMs
+      : Math.round(performance.now() - start);
   return {
-    irNodeCount: typeof raw.irNodeCount === 'number' ? raw.irNodeCount : 0,
-    symbolCount: typeof raw.symbolCount === 'number' ? raw.symbolCount : 0,
-    genTimeMs: typeof raw.genTimeMs === 'number' ? raw.genTimeMs : 0
+    irNodeCount: typeof raw?.nodes === "number" ? raw.nodes : 0,
+    symbolCount: typeof raw?.kinds?.Symbol === "number" ? raw.kinds.Symbol : 0,
+    genTimeMs: Math.round(duration),
   };
 }
 
-function normalizeDiagnostics(raw: any[]): Diagnostic[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((d, i) => ({
-    severity: (d.severity === 'warning' || d.severity === 'info') ? d.severity : 'error',
-    message: String(d.message ?? 'Unknown'),
-    start: normalizePos(d.start),
-    end: normalizePos(d.end),
-    code: d.code ? String(d.code) : undefined,
-    _i: i
-  } as any)).map(({ _i, ...rest }) => rest);
-}
-
-function normalizePos(p: any): { line: number; column: number } {
-  if (!p || typeof p.line !== 'number' || typeof p.column !== 'number') return { line: 0, column: 0 };
-  return { line: p.line, column: p.column };
+async function fallbackCompile(
+  sourceText: string | undefined,
+  ast: any,
+  start: number,
+  diagnostics: Diagnostic[],
+): Promise<CompileResponse> {
+  try {
+    const nodeCount =
+      ast && typeof ast === "object" && Array.isArray((ast as any).scenes)
+        ? (ast as any).scenes.length
+        : 0;
+    const genTimeMs = Math.round(performance.now() - start);
+    const stats: CompileStats = {
+      irNodeCount: nodeCount,
+      symbolCount: 0,
+      genTimeMs,
+    };
+    return {
+      ok: true,
+      ir: sourceText
+        ? { kind: "MockIR", preview: sourceText.slice(0, 2000) }
+        : null,
+      diagnostics,
+      stats,
+      genTimeMs,
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Unknown compile error",
+      diagnostics,
+    };
+  }
 }

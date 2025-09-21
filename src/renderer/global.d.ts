@@ -1,16 +1,33 @@
 // Global renderer declarations
-import type { ParseResponse, CompileResponse } from '@shared/types';
+import type { ParseResponse, CompileResponse } from "@shared/types";
 
 declare global {
-  // Augment Window with lightly typed API; detailed type not critical yet
   interface Window {
     storymode: {
       openFileDialog(): Promise<{ canceled: boolean; path?: string }>;
-      readFile(path: string): Promise<{ ok: boolean; content?: string; error?: string }>;
+      readFile(
+        path: string,
+      ): Promise<{ ok: boolean; content?: string; error?: string }>;
       parse(content: string, filename?: string): Promise<ParseResponse>;
-      compile(content: string, filename?: string): Promise<CompileResponse>;
-      versionInfo(): Promise<{ coreVersion: string; compilerVersion: string; appVersion: string }>; 
-      writeFile(path: string, content: string): Promise<{ ok: boolean; error?: string }>;
+      compile(
+        input:
+          | string
+          | {
+              content?: string;
+              filename?: string;
+              ast?: unknown;
+              kind?: string;
+            },
+      ): Promise<CompileResponse>;
+      versionInfo(): Promise<{
+        coreVersion: string;
+        compilerVersion: string;
+        appVersion: string;
+      }>;
+      writeFile(
+        path: string,
+        content: string,
+      ): Promise<{ ok: boolean; error?: string }>;
       saveAsDialog(): Promise<{ canceled: boolean; path?: string }>;
     };
   }

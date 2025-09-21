@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+import fs from "node:fs";
+import path from "node:path";
 
 function copyRecursive(src, dest) {
   if (!fs.existsSync(src)) return;
@@ -17,9 +17,9 @@ function copyRecursive(src, dest) {
 }
 
 const projectRoot = process.cwd();
-const assetsSrc = path.join(projectRoot, 'assets');
-const dest = path.join(projectRoot, 'dist', 'renderer', 'assets');
+const assetsSrc = path.join(projectRoot, "assets");
+const dest = path.join(projectRoot, "dist", "renderer", "assets");
 
-copyRecursive(path.join(assetsSrc, 'ui'), path.join(dest, 'ui'));
-copyRecursive(path.join(assetsSrc, 'images'), path.join(dest, 'images'));
-console.log('Assets copied to', dest);
+copyRecursive(path.join(assetsSrc, "ui"), path.join(dest, "ui"));
+copyRecursive(path.join(assetsSrc, "images"), path.join(dest, "images"));
+console.log("Assets copied to", dest);
