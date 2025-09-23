@@ -45,10 +45,6 @@ ipcRenderer.on("ui:toggleSidebar", () => {
   if (w && w.dispatchEvent)
     w.dispatchEvent(new CustomEvent("menu:toggleSidebar"));
 });
-ipcRenderer.on("ui:togglePreview", () => {
-  if (w && w.dispatchEvent)
-    w.dispatchEvent(new CustomEvent("menu:togglePreview"));
-});
 ipcRenderer.on("build:recompile", () => {
   if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent("menu:recompile"));
 });

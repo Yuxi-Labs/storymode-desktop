@@ -1,6 +1,6 @@
-# State Model & Store Contract (MVP)
+﻿# State Model & Store Contract (Writer-Focused MVP)
 
-Primary store implemented in renderer via Zustand (or similar minimal observable). All state slices are serializable (except editor instance refs kept outside store).
+StoryMode Desktop keeps all renderer state inside a reusable Zustand store. The shape below reflects the writer-first feature set (world tree, metadata, diagnostics) while still retaining the background compile data needed for engine exports.
 
 ## Top-Level Shape
 ```ts
@@ -17,90 +17,74 @@ interface AppState {
 ## File State
 ```ts
 interface FileState {
-  path: string | null;            // Absolute path
-  content: string;                // Current in-editor text
-  lastDiskContent: string;        // Last content loaded from disk (for dirty check)
+  path: string | null;            // Absolute path to active narrative
+  content: string;                // Current editor buffer
+  lastDiskContent: string;        // Snapshot from last load/save
   isDirty: boolean;               // content !== lastDiskContent
-  sizeBytes: number | null;       // For threshold warnings
-  lastModifiedMs: number | null;  // From fs stats if available
+  sizeBytes: number | null;       // For lightweight guardrails
+  lastModifiedMs: number | null;  // From fs stats when available
+  lineCount?: number;             // Derived for status bar
+  fileType?: ''story'' | ''narrative'' | ''unknown'';
+  encoding?: string;              // Reserved for future detection
 }
 ```
 
 ## Parse State
 ```ts
 interface ParseState {
-  version: number;                // Increment each successful parse attempt (even if errors)
-  status: 'idle' | 'parsing' | 'ready' | 'error';
-  ast: unknown | null;            // Structured AST from core
-  tokens: TokenInfo[];            // Flattened tokens list
-  diagnostics: Diagnostic[];      // Parse diagnostics
-  parseTimeMs: number | null;     // Timing for last parse
-  error?: string;                 // Transport or unexpected error message
+  version: number;                // Bumps on every attempt (success or failure)
+  status: ''idle'' | ''parsing'' | ''ready'' | ''error'';
+  ast: unknown | null;            // Structured tree used internally (world tree + metadata)
+  tokens: TokenInfo[];            // Token stream for syntax colour + future smarts
+  diagnostics: Diagnostic[];      // Issues surfaced to writers
+  parseTimeMs: number | null;     // Timing fed into status bar
+  error?: string;                 // Transport/unexpected failures
   lastParsedAt: number | null;    // Date.now()
-}
-
-interface TokenInfo {
-  index: number;
-  type: string;
-  lexeme: string;
-  start: Position;
-  end: Position;
-}
-
-interface Position { line: number; column: number; }
-
-interface Diagnostic {
-  severity: 'error' | 'warning' | 'info';
-  message: string;
-  start: Position;
-  end: Position;
-  code?: string;                  // Optional rule or parser code
+  fileKind?: FileKind;            // story / narrative / unknown
 }
 ```
 
 ## Compile State
+Even though the UI no longer exposes explicit IR panels, we retain compile output so the menu action can export builds and the status bar can show timings.
+
 ```ts
 interface CompileState {
-  status: 'idle' | 'compiling' | 'ready' | 'error';
-  ir: unknown | null;             // IR object
-  diagnostics: Diagnostic[];      // Compile diagnostics
+  version: number;
+  status: ''idle'' | ''compiling'' | ''ready'' | ''error'';
+  ir: unknown | null;             // Engine-ready representation
+  diagnostics: Diagnostic[];      // Compile diagnostics (for toast/status copy)
   stats: CompileStats | null;     // { irNodeCount, symbolCount, genTimeMs }
   genTimeMs: number | null;       // Convenience alias of stats.genTimeMs
-  error?: string;                 // Transport/unexpected error
+  error?: string;                 // Transport/unexpected failures
   lastCompiledAt: number | null;  // Date.now()
-}
-
-interface CompileStats {
-  irNodeCount: number;
-  symbolCount: number;
-  genTimeMs: number;
 }
 ```
 
 ## Navigation State
 ```ts
 interface NavigationState {
-  sceneIndex: SceneMeta[];        // Extracted from AST or compile IR
-  lastJumpSceneId?: string;       // For re-focus
-  pendingJump?: string;           // Scene requested while parse in-flight
+  sceneIndex: SceneMeta[];        // Parsed scene list for explorer + palette
+  lastJumpSceneId?: string;       // Recent jump target (for re-focus)
+  pendingJump?: string;           // Scene requested while parse in flight
 }
 
 interface SceneMeta {
   id: string;
-  line: number;                   // 0-based line for editor scroll
-  title?: string;                 // Optional human label
+  line: number;                   // 0-based editor line
+  title?: string;                 // Optional friendly label
 }
 ```
 
 ## UI State
 ```ts
 interface UIState {
-  theme: 'light' | 'dark';
-  activePanel: 'editor' | 'diagnostics' | 'ast' | 'ir' | 'tokens';
-  panelVisibility: { ast: boolean; ir: boolean; diagnostics: boolean; tokens: boolean; };
-  panelSizes: { left: number; right: number; bottom: number };  // Pixel or ratio
-  showReloadPrompt: boolean;      // File changed on disk
-  parseDebounceMs: number;        // Config (200 default)
+  theme: ''light'' | ''dark'';
+  activePanel: ''metadata'' | ''diagnostics'';
+  parseDebounceMs: number;        // 200 by default
+  sidebarView: ''world'';
+  sidebarCollapsed: boolean;
+  caretLine?: number;
+  caretColumn?: number;
 }
 ```
 
@@ -114,37 +98,40 @@ interface TimingState {
 ```
 
 ## Derived Selectors (Examples)
-- `isParsable = file.content.length <= MAX_CONTENT && !file.path?.endsWith('.bin')`
-- `hasErrors = parse.diagnostics.some(d => d.severity === 'error')`
-- `canCompile = parse.status === 'ready' && !hasErrors`
+- `hasErrors = parse.diagnostics.some(d => d.severity === ''error'')`
+- `sceneCount = navigation.sceneIndex.length`
+- `canCompile = parse.status === ''ready'' && !hasErrors`
 
 ## Store Actions (Grouped)
 ```ts
 interface StoreActions {
   // File
-  openFile(path: string, content: string, sizeBytes: number, lastModifiedMs: number | null): void;
+  openFile(path: string | undefined, content: string, sizeBytes?: number, lastModifiedMs?: number | null): void;
   updateContent(newContent: string): void;
-  markDiskSync(): void; // set lastDiskContent = content; isDirty=false
+  newFile(): void;
+  closeFile(): void;
+  markSaved(path?: string): void;
+  setFilePath(path: string | null): void;
+  updateDerivedFileStats(): void;
 
   // Parse
-  requestParse(): void; // sets status=parsing if not already
-  applyParseResult(result: ParseSuccess | ParseFailure): void;
+  requestParse(): void;
+  applyParseResult(result: ParseSuccess): void;
 
   // Compile
-  requestCompile(): void; // sets status=compiling
-  applyCompileResult(result: CompileSuccess | CompileFailure): void;
+  requestCompile(): void;
+  applyCompileResult(result: CompileSuccess): void;
 
   // Navigation
   setSceneIndex(scenes: SceneMeta[]): void;
-  requestJump(sceneId: string): void;
-  confirmJump(sceneId: string): void; // after editor positions
+  recordJump(sceneId: string): void;
 
   // UI
-  setTheme(theme: 'light' | 'dark'): void;
-  setActivePanel(panel: UIState['activePanel']): void;
-  togglePanel(name: keyof UIState['panelVisibility']): void;
-  setPanelSize(which: keyof UIState['panelSizes'], value: number): void;
-  setReloadPrompt(show: boolean): void;
+  setTheme(theme: ''light'' | ''dark''): void;
+  setActivePanel(panel: UIState[''activePanel'']): void;
+  toggleSidebar(): void;
+  setSidebarView(view: UIState[''sidebarView'']): void;
+  setCaret(line: number, column: number): void;
 
   // Timing
   noteUserInput(): void;
@@ -159,7 +146,9 @@ interface ParseSuccess {
   ast: unknown;
   tokens: TokenInfo[];
   diagnostics: Diagnostic[];
+  sceneIndex?: SceneMeta[];
   parseTimeMs: number;
+  fileKind?: FileKind;
 }
 interface ParseFailure { ok: false; error: string; diagnostics?: Diagnostic[]; }
 
@@ -174,16 +163,16 @@ interface CompileFailure { ok: false; error: string; diagnostics?: Diagnostic[];
 ```
 
 ## Debounce Logic (Renderer)
-- On `updateContent`, store updates content, sets `file.isDirty` and schedules parse if not already waiting.
-- If a parse is already pending (timer), reset timer; else set `scheduleParseDebounce()` timestamp.
-- When timer fires: `requestParse()` -> IPC -> `applyParseResult()`.
+- `updateContent` updates the buffer, marks the file dirty, notes user input, and schedules a parse if not already pending.
+- When the debounce timer fires, `requestParse()` flips status to `parsing`, kicks IPC, and applies the result.
 
 ## Error Resilience
-- If parse fails unexpectedly (transport), keep last good AST/tokens but set status=error and show diagnostics panel message.
-- If compile fails, keep previous IR available until replaced; show error banner in IR panel.
+- Parse failures leave the previous good AST/tokens in place so the world tree continues to work, while diagnostics communicate the error state.
+- Compile failures surface through diagnostics/status without clearing the last known good IR.
 
-## Minimal Persist Strategy (Phase 1)
-- No disk persistence; store resets on app restart.
+## Persist Strategy (Phase 1)
+- No disk persistence. UI preferences are session-only, though limited values may be cached in `localStorage` when available.
 
 ---
-Generated: 2025-09-14
+Updated: 2025-09-24
+

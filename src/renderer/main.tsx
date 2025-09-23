@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 import "./styles.css";
 import { createRoot } from "react-dom/client";
 import "./monacoSetup";
@@ -8,20 +8,52 @@ import {
   selectParse,
   selectCompile,
   selectUI,
+  selectNavigation,
   type RootState,
-  type ParseState,
 } from "./store/store.js";
 import { Editor } from "./components/Editor.js";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel.js";
 import { useDebouncedParse } from "./hooks/useDebouncedParse.js";
 import { useAutoCompile } from "./hooks/useAutoCompile.js";
-import { ASTPanel } from "./components/ASTPanel.js";
-import { IRPanel } from "./components/IRPanel.js";
 import { InfoPanel } from "./components/InfoPanel.js";
-import { PreviewPanel } from "./components/PreviewPanel.js";
-import { TokensPanel } from "./components/TokensPanel.js";
 import { TabBar } from "./components/TabBar.js";
+import { ActivityBar } from "./components/ActivityBar.js";
 import { FileList } from "./components/FileList.js";
+
+const IconAddFile: React.FC = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3.5 1.75h5.3L12.5 5v9.25a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1z" />
+    <path d="M8 7.5v5" />
+    <path d="M5.5 10h5" />
+  </svg>
+);
+
+const IconOpenFile: React.FC = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 3.5h6.2L13 7v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z" />
+    <path d="M5 11h7" />
+    <path d="M5 8h7" />
+  </svg>
+);
+
 const App: React.FC = () => {
   const file = useStore(selectFile);
   const ui = useStore(selectUI);
@@ -34,12 +66,14 @@ const App: React.FC = () => {
   const markSaved = useStore((s: RootState) => s.markSaved);
   const newFile = useStore((s: RootState) => s.newFile);
   const closeFile = useStore((s: RootState) => s.closeFile);
+
   const isDark = ui.theme === "dark";
   useEffect(() => {
     const cls = document.documentElement.classList;
     if (isDark) cls.add("dark");
     else cls.remove("dark");
   }, [isDark]);
+
   useEffect(() => {
     function onFileOpenResult(e: Event) {
       const detail = (e as CustomEvent).detail;
@@ -134,10 +168,12 @@ const App: React.FC = () => {
     newFile,
     closeFile,
   ]);
+
   const hasDocument = Boolean(file.path || file.content.length);
   return (
     <div className="app-shell">
       <div className="workspace">
+        <ActivityBar />
         <Sidebar />
         <div className="center-stage">
           <TabBar />
@@ -151,9 +187,20 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+const inspectorTabs: Array<{
+  id: RootState["ui"]["activePanel"];
+  label: string;
+  render: () => JSX.Element;
+}> = [
+  { id: "metadata", label: "Metadata", render: () => <InfoPanel /> },
+  { id: "diagnostics", label: "Diagnostics", render: () => <DiagnosticsPanel /> },
+];
+
 const Sidebar: React.FC = () => {
   const openFileAction = useStore((s: RootState) => s.openFile);
   const newFile = useStore((s: RootState) => s.newFile);
+  const { sidebarCollapsed } = useStore(selectUI);
 
   const handleOpen = async () => {
     const target = await window.storymode.openFileDialog();
@@ -167,61 +214,51 @@ const Sidebar: React.FC = () => {
     newFile();
   };
 
+  if (sidebarCollapsed) {
+    return <aside className="sidebar-outer sidebar-collapsed" aria-hidden />;
+  }
+
   return (
     <aside className="sidebar-outer">
-      <div className="sidebar-section">
-        <div className="sidebar-title">Workspace</div>
-        <div className="sidebar-body">
-          <div className="sidebar-actions">
-            <button type="button" onClick={handleOpen}>
-              Open Narrative...
-            </button>
-            <button type="button" onClick={handleNew}>
-              New Narrative
-            </button>
-          </div>
-          <div className="sidebar-hint">
-            StoryMode works with `.story` manifests and `.narrative` scene
-            files.
-          </div>
+      <header className="sidebar-header">
+        <span className="sidebar-title">World</span>
+        <div className="sidebar-actions">
+          <button
+            type="button"
+            className="sidebar-action"
+            title="New file"
+            onClick={handleNew}
+          >
+            <IconAddFile />
+          </button>
+          <button
+            type="button"
+            className="sidebar-action"
+            title="Open file"
+            onClick={handleOpen}
+          >
+            <IconOpenFile />
+          </button>
         </div>
-      </div>
-      <div className="sidebar-section">
-        <div className="sidebar-title">Documents</div>
-        <div className="sidebar-body explorer">
-          <FileList />
-        </div>
+      </header>
+      <div className="sidebar-scroll">
+        <SidebarWorldView />
       </div>
     </aside>
   );
 };
-interface InspectorProps {
-  parse: ParseState;
-  compile: ReturnType<typeof selectCompile>;
-}
-const inspectorTabs = [
-  {
-    id: "diagnostics",
-    label: "Diagnostics",
-    render: () => <DiagnosticsPanel />,
-  },
-  { id: "ast", label: "AST", render: () => <ASTPanel /> },
-  { id: "ir", label: "IR", render: () => <IRPanel /> },
-  { id: "info", label: "Info", render: () => <InfoPanel /> },
-  { id: "preview", label: "Preview", render: () => <PreviewPanel /> },
-  { id: "tokens", label: "Tokens", render: () => <TokensPanel /> },
-];
+
+const SidebarWorldView: React.FC = () => (
+  <div className="sidebar-pane">
+    <FileList />
+  </div>
+);
+
 const Inspector: React.FC = () => {
   const activePanel = useStore((s) => s.ui.activePanel);
   const setActivePanel = useStore((s: RootState) => s.setActivePanel);
   return (
     <aside className="inspector">
-      <div className="inspector-header">
-        <div className="inspector-title">Insights</div>
-        <div className="inspector-subtitle">
-          Secondary context for your narrative.
-        </div>
-      </div>
       <div className="inspector-tabs">
         {inspectorTabs.map((tab) => (
           <button
@@ -240,6 +277,7 @@ const Inspector: React.FC = () => {
     </aside>
   );
 };
+
 const WelcomeEmptyState: React.FC = () => {
   const handleOpen = async () => {
     const target = await window.storymode.openFileDialog();
@@ -252,59 +290,55 @@ const WelcomeEmptyState: React.FC = () => {
     useStore.getState().newFile();
   };
   return (
-    <div className="welcome-card">
-      <h1>Welcome to StoryMode</h1>
-      <p>
-        Draft interactive narratives, compile them for engines, and Preview
-        pacing - all from a focused dark UI.
-      </p>
-      <div className="welcome-actions">
-        <button type="button" onClick={handleNew}>
-          Create Blank Narrative
-        </button>
-        <button type="button" onClick={handleOpen}>
-          Open Existing File
-        </button>
+    <div className="welcome-state">
+      <div className="welcome-pane">
+        <h2>Start Writing</h2>
+        <p>Select an existing StoryMode document or launch a blank narrative to begin.</p>
+        <div className="welcome-buttons">
+          <button type="button" className="primary" onClick={handleNew}>
+            New Narrative
+          </button>
+          <button type="button" onClick={handleOpen}>
+            Open File...
+          </button>
+        </div>
+        <dl className="welcome-shortcuts">
+          <div>
+            <dt>Open</dt>
+            <dd>
+              <kbd>Ctrl</kbd>
+              <span>+</span>
+              <kbd>O</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Save</dt>
+            <dd>
+              <kbd>Ctrl</kbd>
+              <span>+</span>
+              <kbd>S</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Scene Jump</dt>
+            <dd>
+              <kbd>Ctrl</kbd>
+              <span>+</span>
+              <kbd>J</kbd>
+            </dd>
+          </div>
+        </dl>
       </div>
-      <ul className="welcome-tips">
-        <li>
-          Start with ::narrative and ::scene declarations to structure the
-          document.
-        </li>
-        <li>
-          Use metadata directives (@title:, @location:) to populate the info
-          panel.
-        </li>
-        <li>
-          Preview updates after each successful parse - watch the status bar for
-          timings.
-        </li>
-      </ul>
     </div>
   );
 };
+
 const StatusBar: React.FC = () => {
   const file = useStore(selectFile);
   const parse = useStore(selectParse);
   const compile = useStore(selectCompile);
   const ui = useStore(selectUI);
-  const [versions, setVersions] = useState<{
-    coreVersion: string;
-    compilerVersion: string;
-    appVersion: string;
-  } | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    window.storymode
-      .versionInfo()
-      .then((info) => {
-        if (mounted) setVersions(info);
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const navigation = useStore(selectNavigation);
   const errorCount = useMemo(
     () => parse.diagnostics.filter((d) => d.severity === "error").length,
     [parse.diagnostics],
@@ -313,6 +347,7 @@ const StatusBar: React.FC = () => {
     () => parse.diagnostics.filter((d) => d.severity === "warning").length,
     [parse.diagnostics],
   );
+  const sceneCount = navigation.sceneIndex?.length ?? 0;
   const words = useMemo(() => {
     const text = file.content || "";
     return text.trim().length ? text.trim().split(/\s+/).length : 0;
@@ -320,29 +355,22 @@ const StatusBar: React.FC = () => {
   const lines =
     file.lineCount ?? (file.content ? file.content.split(/\r?\n/).length : 0);
   const caret = { line: ui.caretLine ?? 1, column: ui.caretColumn ?? 1 };
-  const parseTime =
-    parse.status === "parsing"
-      ? "Parsing..."
-      : parse.parseTimeMs != null
-        ? `${parse.parseTimeMs} ms`
-        : " - ";
-  const compileTime =
-    compile.status === "compiling"
-      ? "Compiling..."
-      : compile.genTimeMs != null
-        ? `${compile.genTimeMs} ms`
-        : " - ";
+  const fileKindLabel = (parse.fileKind ?? file.fileType ?? "document").toString();
+  const saveStatus = file.isDirty ? "Unsaved" : "Saved";
   return (
     <footer className="status-bar">
       <span>
         Ln {caret.line}, Col {caret.column}
       </span>
-      <span>Words {words}</span> <span>Lines {lines}</span>
-      <span>Parse {parseTime}</span> <span>Errors {errorCount}</span>
-      <span>Warnings {warningCount}</span> <span>Compile {compileTime}</span>
-      <span>Core {versions?.coreVersion ?? " - "}</span>
-      <span>Compiler {versions?.compilerVersion ?? " - "}</span>
+      <span>Words {words}</span>
+      <span>Lines {lines}</span>
+      <span>Scenes {sceneCount}</span>
+      <span>{fileKindLabel.toUpperCase()}</span>
+      <span>{saveStatus}</span>
+      <span>Errors {errorCount}</span>
+      <span>Warnings {warningCount}</span>
     </footer>
   );
 };
+
 createRoot(document.getElementById("root")!).render(<App />);

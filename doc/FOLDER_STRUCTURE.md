@@ -1,15 +1,15 @@
-# Proposed Folder & File Structure (MVP)
+﻿# Proposed Folder & File Structure (Writer-Focused MVP)
 
 ```
 storymode-desktop/
   package.json
   tsconfig.json
-  vite.config.ts                # For renderer build
-  electron-builder.yml          # (or equivalent) build config stub
+  vite.config.ts                # Renderer build
+  electron-builder.yml          # Build config stub
   doc/                          # Documentation
 
   scripts/
-    dev.js                      # Or use concurrently via npm scripts
+    dev.js                      # Or use npm scripts + concurrently
 
   src/
     main/                       # Main process (Node context)
@@ -21,46 +21,42 @@ storymode-desktop/
         versionHandlers.ts
       security.ts               # CSP, navigation guards
       menu.ts                   # Application menu template
-      watchers/                 # File watch utilities
+      watchers/
         fileWatcher.ts
-      adapters/                 # Wrappers around core libs
+      adapters/
         parseAdapter.ts
         compileAdapter.ts
-      preload/                  # Preload build target
+      preload/
         preload.ts              # Bridge exposing window.storymode
         api.d.ts                # Type definitions for renderer
 
     renderer/                   # Front-end UI
       index.html
       main.tsx                  # App bootstrap (React root)
-      app/                      # High-level app shell/layout
-        AppShell.tsx
-        StatusBar.tsx
-        PanelsLayout.tsx
       components/
-        Editor.tsx              # Monaco/CodeMirror integration
+        ActivityBar.tsx
+        FileList.tsx
+        TabBar.tsx
+        Editor.tsx              # Monaco integration
         DiagnosticsPanel.tsx
-        AstPanel.tsx
-        IrPanel.tsx
-        TokensPanel.tsx
-        SceneJumpPalette.tsx
+        InfoPanel.tsx
+        PreviewPanel.tsx
+        Welcome.tsx             # (if split from main shell)
       store/
-        index.ts                # Zustand createStore
-        selectors.ts            # Derived selectors
-        actions.ts              # Action implementations
-        types.ts                # Mirrors STATE_MODEL
-      styles/
-        theme.css
+        store.ts                # Zustand store implementation
+        selectors.ts            # Optional derived helpers
       hooks/
         useDebouncedParse.ts
-        useIpc.ts
-      ipc/
-        bridge.ts               # Wraps window.storymode with typed helpers
+        useAutoCompile.ts
+      styles.css
+      monacoSetup.ts
+      utils/
+        world.ts               # Parses ::story/::narrative/::scene structure
 
-    shared/                     # Shared types between main & renderer
+    shared/
       types.ts                  # Diagnostic, TokenInfo, SceneMeta, envelopes
 
-    services/                   # Normalized service layer (could be published later)
+    services/
       detectFileKind.ts
       parseSource.ts
       compileSource.ts
@@ -68,15 +64,15 @@ storymode-desktop/
 
   build/                        # Output (gitignored)
 
-  resources/                    # Icons, etc.
+  resources/
     icons/
       icon.png
 ```
 
 ## Notes
 - `shared/types.ts` imported by both main & renderer via `paths` in `tsconfig.json`.
-- `services/` wraps external `@yuxilabs/storymode-*` libs so future refactors only touch one layer.
-- IPC handlers in `main/ipc/*` each export register function accepting `ipcMain` for clarity/testing.
+- `services/` wraps `@yuxilabs/storymode-*` libs so future refactors only touch one layer.
+- IPC handlers in `main/ipc/*` each export a register function accepting `ipcMain` for clarity/testing.
 - Preload provides narrowed surface: `openFile()`, `readFile()`, `watchFile()`, `parse()`, `compile()`, `getVersions()`, `getSceneIndex()`.
 
 ## Build Flow
@@ -85,7 +81,7 @@ storymode-desktop/
 3. Package: electron-builder reads from `dist`.
 
 ## Alternative (Monorepo Friendly)
-If integrating with other storymode packages locally, could adopt pnpm workspace with `packages/services` etc. MVP keeps single package for speed.
+If integrating with other StoryMode packages locally, consider a pnpm workspace with `packages/services` etc. MVP keeps single package for speed.
 
 ---
-Generated: 2025-09-14
+Updated: 2025-09-24

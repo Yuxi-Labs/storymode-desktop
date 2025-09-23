@@ -1,4 +1,4 @@
-# Storymode Desktop Architecture (Draft - MVP Phase 1)
+﻿# Storymode Desktop Architecture (Draft - MVP Phase 1)
 
 ## Process Model
 - Main Process: Window lifecycle, file dialogs, native menus, file system access, external change detection, application state bootstrap.
@@ -31,7 +31,7 @@ Async Event Pushes:
 2. Main returns path; renderer asks `file:read`.
 3. Renderer sets editor content; debounced parse triggers `parse:run`.
 4. Main parses (core) -> sends back structured result.
-5. Renderer store updates diagnostics, AST, tokens, timings.
+5. Renderer store updates diagnostics, derived metadata (AST/tokens) and timings.
 6. User clicks Compile -> `compile:run` -> IR + stats returned.
 7. File change on disk triggers `file:changed` event -> renderer prompts reload.
 
@@ -55,7 +55,7 @@ Async Event Pushes:
 ## Performance Considerations
 - Debounce in renderer ensures no burst parse calls.
 - Potential optimization: maintain last AST and perform incremental parse (Phase 2 if supported by core libs).
-- For large files, AST tree virtualization threshold ( > 1000 nodes ).
+- For large files, consider incremental parsing or lightweight outline generation.
 
 ## Versioning Data
 - Retrieve versions once at startup via `app:versionInfo` to populate status bar.
@@ -77,4 +77,6 @@ Async Event Pushes:
 3. Scene index derivation: part of parse result or separate walker? (Prefer part of parse pipeline if available.)
 
 ---
-Draft generated: 2025-09-14
+Draft Updated: 2025-09-24
+
+

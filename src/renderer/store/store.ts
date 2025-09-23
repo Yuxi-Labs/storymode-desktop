@@ -46,11 +46,10 @@ export interface CompileState {
 
 export interface UIState {
   theme: "light" | "dark";
-  activePanel: "diagnostics" | "ast" | "ir" | "info" | "preview" | "tokens";
+  activePanel: "metadata" | "diagnostics";
   parseDebounceMs: number;
-  sidebarView: "explorer" | "outline" | "search";
+  sidebarView: "world";
   sidebarCollapsed: boolean;
-  previewVisible: boolean;
   caretLine?: number;
   caretColumn?: number;
 }
@@ -99,7 +98,6 @@ export interface StoreState {
   scheduleParseDebounce: () => void;
   toggleSidebar: () => void;
   setSidebarView: (view: UIState["sidebarView"]) => void;
-  togglePreview: () => void;
 }
 
 export type RootState = StoreState;
@@ -109,48 +107,42 @@ function loadPersistedUI(): UIState {
     if (typeof window === "undefined" || !("localStorage" in window)) {
       return {
         theme: "dark",
-        activePanel: "diagnostics",
+        activePanel: "metadata",
         parseDebounceMs: 200,
-        sidebarView: "explorer",
+        sidebarView: "world",
         sidebarCollapsed: false,
-        previewVisible: false,
       };
     }
     const theme =
       localStorage.getItem("storymode.theme") === "light" ? "light" : "dark";
     const panelRaw = localStorage.getItem("storymode.activePanel");
     const allowed: UIState["activePanel"][] = [
+      "metadata",
       "diagnostics",
-      "ast",
-      "ir",
-      "info",
-      "preview",
-      "tokens",
     ];
     const activePanel = allowed.includes(panelRaw as any)
       ? (panelRaw as UIState["activePanel"])
-      : "diagnostics";
+      : "metadata";
+    const sidebarRaw = localStorage.getItem("storymode.sidebarView");
+    const sidebarAllowed: UIState["sidebarView"][] = ["world"];
+    const sidebarView = sidebarAllowed.includes(sidebarRaw as any)
+      ? (sidebarRaw as UIState["sidebarView"])
+      : "world";
     return {
       theme,
       activePanel,
       parseDebounceMs: 200,
-      sidebarView:
-        (localStorage.getItem(
-          "storymode.sidebarView",
-        ) as UIState["sidebarView"]) || "explorer",
+      sidebarView,
       sidebarCollapsed:
         localStorage.getItem("storymode.sidebarCollapsed") === "true",
-      previewVisible:
-        localStorage.getItem("storymode.previewVisible") === "true",
     };
   } catch {
     return {
       theme: "dark",
-      activePanel: "diagnostics",
+      activePanel: "metadata",
       parseDebounceMs: 200,
-      sidebarView: "explorer",
+      sidebarView: "world",
       sidebarCollapsed: false,
-      previewVisible: false,
     };
   }
 }
@@ -375,10 +367,6 @@ export const useStore = create<StoreState>((set, get) => ({
     })),
   setSidebarView: (view) =>
     set((state) => ({ ui: { ...state.ui, sidebarView: view } })),
-  togglePreview: () =>
-    set((state) => ({
-      ui: { ...state.ui, previewVisible: !state.ui.previewVisible },
-    })),
 }));
 
 if (typeof window !== "undefined") {

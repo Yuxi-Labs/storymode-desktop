@@ -1,4 +1,4 @@
-# Risks & Success Metrics (MVP)
+﻿# Risks & Success Metrics (MVP)
 
 ## Key Risks
 | Risk | Impact | Likelihood | Mitigation |
@@ -7,8 +7,8 @@
 | File watch inconsistency (Linux / network drives) | Missed reload prompts | Medium | Use chokidar fallback; manual refresh command |
 | Monaco bundle size inflates startup | Slower cold start | Medium | Code split lazy-load editor; consider CodeMirror later |
 | Unhandled exceptions in core libs crash main | Data loss / app crash | Low | Wrap IPC handlers with try/catch and structured error responses |
-| Token/AST mismatch with future core versions | Rendering errors | Medium | Pin exact versions; add versionInfo check in status bar |
-| Memory growth with very large AST retention | Performance degradation | Low | Keep only last AST; allow manual clear (future) |
+| Outline metadata mismatch with future core versions | World panel drift | Medium | Pin exact versions; add versionInfo check in status bar |
+| Memory growth with very large derived metadata retention | Performance degradation | Low | Keep only last snapshot; consider trimming scene index |
 | UX confusion without inline squiggles | Reduced clarity | Medium | Clear diagnostics panel + counts in status bar |
 | Cross-platform path edge cases (UNC, symlinks) | File open failures | Low | Normalize paths; reject unsupported with clear error |
 | Lack of automated tests initially | Regressions | Medium | Add minimal smoke tests for services & IPC early |
@@ -27,7 +27,7 @@
 - Memory footprint stable (< 500MB RSS) after 30 minutes editing single large file (5MB limit anyway).
 
 ## Success Metrics (Qualitative)
-- Developer can reliably open, edit, view diagnostics, view AST, compile to IR without ambiguous states.
+- Writer can reliably open, edit, view metadata, and (optionally) compile without ambiguous states.
 - Users report clear separation between parse errors vs compile errors.
 - Status bar info always up-to-date after actions (no stale parse time or counts).
 
@@ -41,4 +41,6 @@
 - Docs in `doc/` reflect actual implemented architecture (updated if drift occurs).
 
 ---
-Generated: 2025-09-14
+Updated: 2025-09-24
+
+
