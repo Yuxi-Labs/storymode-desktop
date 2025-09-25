@@ -1,71 +1,113 @@
-import React, { useMemo } from "react";
-import { useStore, selectFile, selectParse } from "../store/store.js";
-import { parseWorldStructure, type WorldNode } from "../utils/world.js";
+﻿import React from "react";
+import { useStore, selectFile } from "../store/store.js";
+
+// Hierarchical model rendering
+
+const interact = (
+  event: React.MouseEvent | React.KeyboardEvent,
+  action: () => void,
+) => {
+  if ("key" in event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  } else {
+    action();
+  }
+};
 
 export const FileList: React.FC = () => {
   const file = useStore(selectFile);
-  const parse = useStore(selectParse);
+  const storyModel = useStore((s) => s.storyModel);
+  const addNarrative = useStore((s) => s.addNarrative);
+  const addScene = useStore((s) => s.addScene);
+  const setActiveScene = useStore((s) => s.setActiveScene);
 
-  const world = useMemo(
-    () => parseWorldStructure(file.content || ""),
-    [file.content],
-  );
+  const hasStory = Boolean(storyModel.story);
+  if (!hasStory) return null;
 
-  const filePath = file.path ?? "Unsaved document";
-  const fileKind = parse.fileKind ?? file.fileType ?? "unknown";
+  const story = storyModel.story!;
+  const name = file.path ? file.path.split(/[/\\]/).pop() : story.title || "Story";
 
-  const handleJump = (line: number) => {
-    window.dispatchEvent(
-      new CustomEvent("reveal-position", {
-        detail: { line: line + 1, column: 1 },
-      }),
-    );
-    useStore.getState().recordJump(`world-${line}`);
+  const handleAddNarrative = () => {
+    const id = addNarrative();
+    if (id) {
+      // Auto add first scene for new narrative
+      const sceneId = addScene(id);
+      if (sceneId) setActiveScene(sceneId);
+    }
+  };
+
+  const handleAddScene = (narrativeId: string) => {
+    const sceneId = addScene(narrativeId);
+    if (sceneId) setActiveScene(sceneId);
   };
 
   return (
-    <div className="world-panel">
+    <div className="world-panel" role="region" aria-label="Story Structure">
       <header className="world-header">
-        <div className="world-file">{filePath}</div>
-        <span className="world-kind">{fileKind.toUpperCase()}</span>
-      </header>
-      <div className="world-tree" role="tree">
-        {world.length === 0 ? (
-          <div className="world-empty">Add ::story, ::narrative, and ::scene directives to populate the world.</div>
-        ) : (
-          world.map((node) => (
-            <WorldNodeRow key={`${node.type}-${node.id}`} node={node} depth={0} onJump={handleJump} />
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-const WorldNodeRow: React.FC<{ node: WorldNode; depth: number; onJump: (line: number) => void }> = ({
-  node,
-  depth,
-  onJump,
-}) => {
-  const label = node.title ? `${node.id} - ${node.title}` : node.id;
-  return (
-    <div className={`world-node ${node.type}`} style={{ paddingLeft: depth * 14 }}>
-      <button type="button" onClick={() => onJump(node.line)}>
-        <span className="world-node-label">{label || node.type.toUpperCase()}</span>
-        <span className="world-node-meta">Ln {node.line + 1}</span>
-      </button>
-      {node.children.length > 0 && (
-        <div className="world-children">
-          {node.children.map((child) => (
-            <WorldNodeRow
-              key={`${child.type}-${child.id}-${child.line}`}
-              node={child}
-              depth={depth + 1}
-              onJump={onJump}
-            />
-          ))}
+        <div className="world-file" data-tip="Story Root">
+          <span className="world-key">STORY</span>
+          <span className="world-value">{name}</span>
         </div>
-      )}
+        <div className="world-actions" aria-label="Structure actions">
+          <span
+            className="world-action"
+            data-tip="New Narrative"
+            role="button"
+            tabIndex={0}
+            onClick={(e) => interact(e, handleAddNarrative)}
+            onKeyDown={(e) => interact(e, handleAddNarrative)}
+          >＋N</span>
+        </div>
+      </header>
+      <div className="world-tree" role="tree" aria-label="Narratives">
+        {story.narrativeIds.map((nid) => {
+          const narrative = storyModel.narratives[nid];
+          if (!narrative) return null;
+            return (
+              <div key={nid} className="world-node narrative" role="treeitem" aria-label={narrative.title} data-tip={narrative.title}>
+                <div className="world-node-row">
+                  <span className="world-node-label">{narrative.title}</span>
+                  <span
+                    className="world-action minor"
+                    data-tip="New Scene"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => interact(e, () => handleAddScene(nid))}
+                    onKeyDown={(e) => interact(e, () => handleAddScene(nid))}
+                  >＋S</span>
+                </div>
+                {narrative.sceneIds.length > 0 && (
+                  <div className="world-children" role="group" aria-label={`Scenes of ${narrative.title}`}>
+                    {narrative.sceneIds.map((sid) => {
+                      const scene = storyModel.scenes[sid];
+                      if (!scene) return null;
+                      const active = storyModel.activeSceneId === sid;
+                      return (
+                        <div
+                          key={sid}
+                          className={`world-node scene${active ? " active" : ""}`}
+                          role="treeitem"
+                          tabIndex={0}
+                          aria-label={scene.title}
+                          data-tip={scene.title}
+                          onClick={(e) => interact(e, () => setActiveScene(sid))}
+                          onKeyDown={(e) => interact(e, () => setActiveScene(sid))}
+                        >
+                          <div className="world-node-row">
+                            <span className="world-node-label">{scene.title}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+        })}
+      </div>
     </div>
   );
 };

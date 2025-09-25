@@ -29,6 +29,14 @@ declare global {
         content: string,
       ): Promise<{ ok: boolean; error?: string }>;
       saveAsDialog(): Promise<{ canceled: boolean; path?: string }>;
+      syncShellState(state: {
+        previewVisible?: boolean;
+        inspectorVisible?: boolean;
+        statusBarVisible?: boolean;
+        sidebarCollapsed?: boolean;
+        themeMode?: "light" | "dark" | "auto";
+        themeId?: string | null;
+      }): void;
     };
   }
 }

@@ -1,5 +1,4 @@
-// Use CommonJS-style requires so Electron can load this preload without ESM support quirks.
-// (Electron still uses require() for preload internally in many setups.)
+﻿// Use CommonJS-style requires so Electron can load this preload without ESM support quirks.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { contextBridge, ipcRenderer } =
   require("electron") as typeof import("electron");
@@ -7,6 +6,15 @@ const { contextBridge, ipcRenderer } =
 type CompilePayload =
   | string
   | { content?: string; filename?: string; ast?: unknown; kind?: string };
+
+type ShellSyncState = {
+  previewVisible?: boolean;
+  inspectorVisible?: boolean;
+  statusBarVisible?: boolean;
+  sidebarCollapsed?: boolean;
+  themeMode?: "light" | "dark" | "auto";
+  themeId?: string | null;
+};
 
 const api = {
   openFileDialog: () => ipcRenderer.invoke("file:openDialog"),
@@ -23,57 +31,45 @@ const api = {
   writeFile: (path: string, content: string) =>
     ipcRenderer.invoke("file:write", { path, content }),
   saveAsDialog: () => ipcRenderer.invoke("file:saveAsDialog"),
+  syncShellState: (state: ShellSyncState) =>
+    ipcRenderer.send("ui:shellState", state),
 };
 
-// Bridge main menu IPC -> DOM CustomEvents for renderer (contextIsolation safe)
 const w: any = (globalThis as any).window || globalThis;
-ipcRenderer.on("file:openResult", (_e, payload) => {
-  if (w && w.dispatchEvent)
-    w.dispatchEvent(
-      new CustomEvent("menu:fileOpenResult", { detail: payload }),
-    );
-});
-ipcRenderer.on("ui:toggleTheme", () => {
-  if (w && w.dispatchEvent)
-    w.dispatchEvent(new CustomEvent("menu:toggleTheme"));
-});
-ipcRenderer.on("ui:setPanel", (_e, panel) => {
-  if (w && w.dispatchEvent)
-    w.dispatchEvent(new CustomEvent("menu:setPanel", { detail: panel }));
-});
-ipcRenderer.on("ui:toggleSidebar", () => {
-  if (w && w.dispatchEvent)
-    w.dispatchEvent(new CustomEvent("menu:toggleSidebar"));
-});
-ipcRenderer.on("build:recompile", () => {
-  if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent("menu:recompile"));
-});
-ipcRenderer.on("ui:print", () => {
-  if (w && w.dispatchEvent) w.dispatchEvent(new CustomEvent("menu:print"));
-});
-// File operations from menu
-ipcRenderer.on("file:new", () =>
-  w.dispatchEvent(new CustomEvent("menu:fileNew")),
+const emit = (name: string, detail?: unknown) => {
+  if (!w || !w.dispatchEvent) return;
+  w.dispatchEvent(new CustomEvent(name, { detail }));
+};
+
+ipcRenderer.on("file:openResult", (_e, payload) => emit("menu:fileOpenResult", payload));
+ipcRenderer.on("file:newStory", () => emit("menu:newStory"));
+ipcRenderer.on("file:saveStory", () => emit("menu:saveStory"));
+ipcRenderer.on("file:saveStoryAs", () => emit("menu:saveStoryAs"));
+ipcRenderer.on("file:saveAllNarratives", () => emit("menu:saveAllNarratives"));
+ipcRenderer.on("file:closeStory", () => emit("menu:closeStory"));
+
+ipcRenderer.on("ui:togglePreview", () => emit("menu:togglePreview"));
+ipcRenderer.on("ui:toggleInspector", () => emit("menu:toggleInspector"));
+ipcRenderer.on("ui:toggleStatusBar", () => emit("menu:toggleStatusBar"));
+ipcRenderer.on("ui:toggleSidebar", () => emit("menu:toggleSidebar"));
+ipcRenderer.on("ui:setThemeMode", (_e, mode) => emit("menu:setThemeMode", mode));
+ipcRenderer.on("ui:applyThemePreset", (_e, themeId) =>
+  emit("menu:applyThemePreset", themeId),
 );
-ipcRenderer.on("file:save", () =>
-  w.dispatchEvent(new CustomEvent("menu:fileSave")),
-);
-ipcRenderer.on("file:saveAs", () =>
-  w.dispatchEvent(new CustomEvent("menu:fileSaveAs")),
-);
-ipcRenderer.on("file:close", () =>
-  w.dispatchEvent(new CustomEvent("menu:fileClose")),
-);
-ipcRenderer.on("file:exportCompiled", () =>
-  w.dispatchEvent(new CustomEvent("menu:fileExportCompiled")),
-);
+ipcRenderer.on("ui:print", () => emit("menu:print"));
+ipcRenderer.on("build:recompile", () => emit("menu:recompile"));
+
+
+ipcRenderer.on("help:requestSupport", () => emit("menu:requestSupport"));
+ipcRenderer.on("help:reportBug", () => emit("menu:reportBug"));
+ipcRenderer.on("help:requestFeature", () => emit("menu:requestFeature"));
+ipcRenderer.on("app:openSettings", () => emit("menu:openSettings"));
+ipcRenderer.on("app:checkForUpdates", () => emit("menu:checkForUpdates"));
 
 try {
   contextBridge.exposeInMainWorld("storymode", api);
-  // eslint-disable-next-line no-console
   console.log("[preload] API exposed");
 } catch (err) {
-  // eslint-disable-next-line no-console
   console.error("[preload] Failed to expose API", err);
 }
 

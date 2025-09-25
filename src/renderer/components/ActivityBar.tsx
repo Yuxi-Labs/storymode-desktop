@@ -2,34 +2,20 @@ import React from "react";
 import { useStore } from "../store/store.js";
 import type { RootState } from "../store/store.js";
 
-const IconExplorer = () => (
+const IconFiles = () => (
   <svg
     width="20"
     height="20"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.8"
+    strokeWidth="1.6"
     strokeLinecap="round"
     strokeLinejoin="round"
+    aria-hidden="true"
   >
-    <path d="M3.5 7a2 2 0 0 1 2-2h3.2l2 2.5H20a1.8 1.8 0 0 1 1.8 1.8V18a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 18V7z" />
-    <path d="M3 10h18" />
-  </svg>
-);
-
-const IconCollapse = ({ collapsed }: { collapsed: boolean }) => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    {collapsed ? <path d="m10 6 6 6-6 6" /> : <path d="m14 6-6 6 6 6" />}
+    <path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M14 3v6h6" />
   </svg>
 );
 
@@ -37,7 +23,21 @@ const views: Array<{
   id: RootState["ui"]["sidebarView"];
   label: string;
   icon: React.FC;
-}> = [{ id: "world", label: "World", icon: IconExplorer }];
+}> = [{ id: "story" as any, label: "New Story", icon: IconFiles }];
+
+const handleActivate = (
+  event: React.KeyboardEvent | React.MouseEvent,
+  action: () => void,
+) => {
+  if ("key" in event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  } else {
+    action();
+  }
+};
 
 export const ActivityBar: React.FC = () => {
   const sidebarView = useStore((s) => s.ui.sidebarView);
@@ -46,41 +46,32 @@ export const ActivityBar: React.FC = () => {
   const toggleSidebar = useStore((s: RootState) => s.toggleSidebar);
 
   return (
-    <aside className="activity-bar">
-      <div className="activity-brand" aria-label="StoryMode">
-        <span className="activity-glyph" aria-hidden="true" />
-      </div>
-      <div className="activity-group">
+    <aside className="activity-bar" aria-label="Navigation">
+      <div className="activity-group" role="tablist" aria-orientation="vertical">
         {views.map((view) => {
           const Icon = view.icon;
           const active = view.id === sidebarView && !sidebarCollapsed;
+          const activate = () => {
+            setSidebarView(view.id);
+            if (sidebarCollapsed) toggleSidebar();
+          };
           return (
-            <button
+            <div
               key={view.id}
-              type="button"
-              className={`activity-button${active ? " active" : ""}`}
-              title={view.label}
-              onClick={() => {
-                setSidebarView(view.id);
-                if (sidebarCollapsed) toggleSidebar();
-              }}
+              className={`activity-pad${active ? " active" : ""}`}
+              role="tab"
+              aria-selected={active}
+              tabIndex={0}
+              data-tip={view.label}
+              /* Removed title attribute to avoid native tooltip duplication */
+              onClick={(event) => handleActivate(event, activate)}
+              onKeyDown={(event) => handleActivate(event, activate)}
             >
               <Icon />
-            </button>
+            </div>
           );
         })}
-      </div>
-      <div className="activity-footer">
-        <button
-          type="button"
-          className="activity-button"
-          title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          onClick={() => toggleSidebar()}
-        >
-          <IconCollapse collapsed={sidebarCollapsed} />
-        </button>
       </div>
     </aside>
   );
 };
-

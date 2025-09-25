@@ -15,34 +15,24 @@ export const InfoPanel: React.FC = () => {
   const world = useMemo(() => parseWorldStructure(content), [content]);
 
   if (!content) {
-    return <div className="meta-panel empty">Open or create a StoryMode document to view metadata.</div>;
+    return (
+      <div className="meta-panel empty">
+        <h3>Start writing</h3>
+        <p>Open a story to view metadata.</p>
+      </div>
+    );
   }
 
   const narrativeCount = countNodes(world, "narrative");
   const sceneCount = countNodes(world, "scene");
+  const hasMetadata = meta.length > 0;
+  const hasWorldOutline = world.length > 0;
 
   return (
     <div className="meta-panel">
-      <div className="meta-summary" role="list">
-        <div className="meta-summary-item" role="listitem">
-          <span className="meta-summary-label">Stories</span>
-          <span className="meta-summary-value">{world.length}</span>
-        </div>
-        <div className="meta-summary-item" role="listitem">
-          <span className="meta-summary-label">Narratives</span>
-          <span className="meta-summary-value">{narrativeCount}</span>
-        </div>
-        <div className="meta-summary-item" role="listitem">
-          <span className="meta-summary-label">Scenes</span>
-          <span className="meta-summary-value">{sceneCount}</span>
-        </div>
-      </div>
-
       <section className="meta-section">
-        <header>Directives</header>
-        {meta.length === 0 ? (
-          <div className="meta-empty">No @ directives found near the top of this document.</div>
-        ) : (
+        <header>Document metadata</header>
+        {hasMetadata ? (
           <dl className="meta-list">
             {meta.map((item) => (
               <div key={item.key}>
@@ -51,8 +41,30 @@ export const InfoPanel: React.FC = () => {
               </div>
             ))}
           </dl>
+        ) : (
+          <div className="meta-empty">No @ directives found near the top of this document.</div>
         )}
       </section>
+
+      {hasWorldOutline && (
+        <section className="meta-section">
+          <header>World outline</header>
+          <div className="meta-summary" role="list">
+            <div className="meta-summary-item" role="listitem">
+              <span className="meta-summary-label">Stories</span>
+              <span className="meta-summary-value">{world.length}</span>
+            </div>
+            <div className="meta-summary-item" role="listitem">
+              <span className="meta-summary-label">Narratives</span>
+              <span className="meta-summary-value">{narrativeCount}</span>
+            </div>
+            <div className="meta-summary-item" role="listitem">
+              <span className="meta-summary-label">Scenes</span>
+              <span className="meta-summary-value">{sceneCount}</span>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 };
@@ -83,4 +95,8 @@ function countNodes(tree: WorldNode[], type: WorldNode["type"]): number {
   }
   return total;
 }
+
+
+
+
 
