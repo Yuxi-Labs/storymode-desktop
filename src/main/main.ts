@@ -173,100 +173,6 @@ function getVersion(pkgName: string): string {
   }
 }
 
-function openAboutDialog(parent?: BrowserWindow) {
-  const aboutWin = new BrowserWindow({
-    width: 580,
-    height: 440,
-    useContentSize: true,
-    resizable: false,
-    thickFrame: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    title: "About StoryMode",
-  frame: false,
-  // Allow OS rounded corners for the restored design
-  roundedCorners: true,
-    modal: !!parent,
-    parent: parent || undefined,
-    skipTaskbar: true,
-    movable: true,
-    show: false,
-  backgroundColor: "#181c21",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  aboutWin.setMenu(null);
-
-  // No square enforcement; keep native rounded corners for fidelity
-
-  const candidate1 = path.join(__dirname, "../../assets/ui/about.html");
-  const candidate2 = path.join(process.cwd(), "assets", "ui", "about.html");
-  const candidate3 = process.resourcesPath
-    ? path.join(process.resourcesPath, "assets", "ui", "about.html")
-    : candidate2;
-
-  let aboutPath = candidate1;
-  if (!existsSync(aboutPath) && existsSync(candidate2)) aboutPath = candidate2;
-  if (!existsSync(aboutPath) && existsSync(candidate3)) aboutPath = candidate3;
-
-  if (!existsSync(aboutPath)) {
-    console.error(
-      "[main] about.html not found at any candidate path:",
-      candidate1,
-      candidate2,
-      candidate3,
-    );
-    dialog.showMessageBox({
-      type: "info",
-      title: "About StoryMode",
-      message: `StoryMode\nVersion: ${app.getVersion()}`,
-    });
-    return;
-  }
-
-  aboutWin
-    .loadFile(aboutPath, {
-      query: {
-        app: app.getVersion(),
-        core: getVersion("@yuxilabs/storymode-core"),
-        compiler: getVersion("@yuxilabs/storymode-compiler"),
-      },
-    })
-    .catch((err) => console.error("[main] failed to load about.html", err));
-
-  aboutWin.once("ready-to-show", () => {
-    try {
-      // Attempt to apply a rectangular window shape (Windows) to eliminate any OS corner rounding
-      try {
-        // @ts-ignore Electron 30 exposes setShape
-        if (typeof (aboutWin as any).setShape === "function") {
-          const { width, height } = aboutWin.getBounds();
-            // Simple rectangle shape
-          (aboutWin as any).setShape([{ x: 0, y: 0, width, height }]);
-        }
-      } catch {
-        // ignore shape errors
-      }
-      if (parent) {
-        const pBounds = parent.getBounds();
-        const aBounds = aboutWin.getBounds();
-        const x = pBounds.x + Math.round((pBounds.width - aBounds.width) / 2);
-        const y =
-          pBounds.y + Math.round((pBounds.height - aBounds.height) / 2);
-        aboutWin.setPosition(x, y);
-      } else {
-        aboutWin.center();
-      }
-    } catch {
-      // ignore positioning errors
-    }
-    aboutWin.show();
-  });
-}
 
 function buildMenu(win: BrowserWindow) {
   const appearanceDisabled = Boolean(shellState.themeId);
@@ -486,10 +392,10 @@ function buildMenu(win: BrowserWindow) {
           label: "Request a Feature…",
           click: () => win.webContents.send("help:requestFeature"),
         },
-        { type: "separator" },
+  { type: "separator" },
         {
           label: "About StoryMode",
-          click: () => openAboutDialog(win),
+          click: () => win.webContents.send("app:openAbout"),
         },
       ],
     },

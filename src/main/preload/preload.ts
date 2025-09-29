@@ -65,6 +65,7 @@ ipcRenderer.on("help:reportBug", () => emit("menu:reportBug"));
 ipcRenderer.on("help:requestFeature", () => emit("menu:requestFeature"));
 ipcRenderer.on("app:openSettings", () => emit("menu:openSettings"));
 ipcRenderer.on("app:checkForUpdates", () => emit("menu:checkForUpdates"));
+ipcRenderer.on("app:openAbout", () => emit("menu:openAbout"));
 
 try {
   contextBridge.exposeInMainWorld("storymode", api);

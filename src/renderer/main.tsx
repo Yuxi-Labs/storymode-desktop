@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./styles.css";
 import { createRoot } from "react-dom/client";
 import "./monacoSetup";
@@ -18,6 +18,7 @@ import { ActivityBar } from "./components/ActivityBar.js";
 import { FileList } from "./components/FileList.js";
 import { PreviewPanel } from "./components/PreviewPanel.js";
 import { selectUI as _selectUI } from './store/store.js';
+import { AboutDialog } from './components/AboutDialog.js';
 
 const Inspector: React.FC = () => {
   // Inspector panel remains, but is empty
@@ -234,6 +235,7 @@ const StatusBar: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const [aboutOpen, setAboutOpen] = useState(false);
   const file = useStore(selectFile);
   const ui = useStore(selectUI);
   useDebouncedParse();
@@ -320,6 +322,13 @@ const App: React.FC = () => {
       };
     }, []);
 
+  // About dialog handler
+  useEffect(() => {
+    const open = () => setAboutOpen(true);
+    window.addEventListener('menu:openAbout', open);
+    return () => window.removeEventListener('menu:openAbout', open);
+  }, []);
+
   return (
     <div className="app-shell">
       <div className="workspace">
@@ -334,6 +343,7 @@ const App: React.FC = () => {
         <Inspector />
       </div>
       {ui.statusBarVisible && <StatusBar />}
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 };

@@ -16,7 +16,7 @@ The app window opens after the renderer dev server (Vite) is ready.
 - `npm run lint` / `npm run format` – Lint & format sources.
 
 ## Shell Overview (September 2025 refresh)
-- **Menu bar** now reflects StoryMode concepts: File menu manages stories, narratives, preview, printing, and settings. Edit surfaces writer actions (select line/block, comment). View separates Light/Dark/Auto appearance from installable themes and exposes panel toggles. Tools hosts AI/Git placeholders and update checks. Help links to docs/support plus the redesigned About dialog.
+- **Menu bar** now reflects StoryMode concepts: File menu manages stories, narratives, preview, printing, and settings. Edit surfaces writer actions (select line/block, comment). View separates Light/Dark/Auto appearance from installable themes and exposes panel toggles. Tools hosts AI/Git placeholders and update checks. Help links to docs/support.
 - **World browser** replaces the generic explorer. Stories, narratives, and scenes appear in a structured tree; entries are keyboard-accessible.
 - **Integrated welcome** page uses panels instead of floating cards, guiding writers through story-oriented actions.
 - **Preview** runs in place of the editor. Toggled via File → Preview Story or the status controls; state is synced to the menu.
@@ -63,3 +63,5 @@ See the `doc/` folder for:
 
 ---
 Generated scaffold date: 2025-09-14 (UI refresh 2025-09-24)
+
+<!-- Visual regression / About dialog infrastructure was removed. -->
