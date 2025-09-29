@@ -19,8 +19,8 @@ export const TabBar: React.FC = () => {
   const title = file.path
     ? file.path.split(/[/\\]/).pop() ?? "Story"
     : parse.fileKind === "narrative"
-      ? "Untitled narrative"
-      : "Untitled story";
+      ? "Untitled Narrative"
+      : "Untitled";
 
   const handleClose = () => closeFile();
 

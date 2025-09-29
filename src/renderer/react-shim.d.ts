@@ -8,6 +8,7 @@ declare module 'react' {
   export function useEffect(...args: any[]): void;
   export function useRef<T = any>(init: T | null): { current: T | null };
   export function useState<S>(init: S): [S, (v: S) => void];
+  export function useMemo<T>(factory: () => T, deps: any[]): T;
   const React: { createElement: any };
   export default React;
 }

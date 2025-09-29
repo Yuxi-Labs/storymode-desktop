@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
-// Import mascot image so bundler emits proper hashed asset and path works in production.
-import mascotPng from '../../../assets/images/logos/storymode-logo-char.png';
+import React, { useEffect, useRef, useState } from 'react';
+import mascotPng from '../../../assets/images/logos/storymode-logo-char1.png';
 
 interface VersionInfo {
   appVersion: string;
@@ -15,6 +14,15 @@ interface AboutDialogProps {
 
 export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
   const [versions, setVersions] = useState<VersionInfo | null>(null);
+  const footerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef<{ dragging: boolean; startX: number; startY: number; origLeft: number; origTop: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    origLeft: 0,
+    origTop: 0,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -36,17 +44,6 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
     return () => { alive = false; };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -63,23 +60,52 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="about-title"
+        ref={dialogRef}
+  style={{ position: 'relative' }}
+        onPointerDown={(e) => {
+          // allow dragging when starting on any non-interactive area (not a button or link)
+          const targetEl = e.target as HTMLElement;
+          if (targetEl.closest('button, a')) return;
+          const state = dragState.current!;
+          state.dragging = true;
+          state.startX = e.clientX;
+          state.startY = e.clientY;
+          const dlg = dialogRef.current!;
+          const dlgRect = dlg.getBoundingClientRect();
+          dlg.style.position = 'fixed';
+          dlg.style.left = dlgRect.left + 'px';
+          dlg.style.top = dlgRect.top + 'px';
+          state.origLeft = dlgRect.left;
+          state.origTop = dlgRect.top;
+          dlg.style.margin = '0';
+          e.preventDefault();
+        }}
+        onPointerMove={(e) => {
+          const state = dragState.current!;
+          if (!state.dragging) return;
+          const dlg = dialogRef.current!;
+          const dx = e.clientX - state.startX;
+          const dy = e.clientY - state.startY;
+          dlg.style.left = state.origLeft + dx + 'px';
+          dlg.style.top = state.origTop + dy + 'px';
+        }}
+        onPointerUp={() => {
+          const state = dragState.current!;
+          if (state.dragging) {
+            state.dragging = false;
+          }
+        }}
+        onPointerLeave={(e) => {
+          const state = dragState.current!;
+          if (state.dragging && e.buttons === 0) {
+            state.dragging = false;
+          }
+        }}
       >
-        <button
-          className="about-close"
-          aria-label="Close About"
-          onClick={onClose}
-        >
-          ✕
-        </button>
-        <div className="about-header">
-          <img
-            className="about-mascot"
-            src={mascotPng}
-            alt="StoryMode Mascot"
-            width={96}
-            height={96}
-            onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
-          />
+        <div className="about-header" style={{ gap: '6px', userSelect: 'none' }}>
+          <div className="about-mascot-wrapper">
+            <img className="about-mascot" src={mascotPng} alt="StoryMode Mascot" />
+          </div>
           <div className="about-heading-text">
             <h1 id="about-title" className="about-title">
               StoryMode
@@ -91,6 +117,15 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
             </p>
           </div>
         </div>
+        <button
+          className="about-close"
+          aria-label="Close About"
+          onClick={onClose}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M6.4 5 12 10.6 17.6 5l1.4 1.4L13.4 12l5.6 5.6-1.4 1.4L12 13.4 6.4 19l-1.4-1.4L10.6 12 5 6.4 6.4 5Z" fill="currentColor" />
+          </svg>
+        </button>
         <div className="about-versions" aria-label="Version information">
           <div className="about-version-row"><span className="about-ver-label">Application</span><span className="about-ver-value">{versions?.appVersion ?? '…'}</span></div>
           <div className="about-version-row"><span className="about-ver-label">Core</span><span className="about-ver-value">{versions?.coreVersion ?? '…'}</span></div>
@@ -98,17 +133,10 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
         </div>
         <footer className="about-footer">
           <div className="about-copyright">
-            © {new Date().getFullYear()} William Sawyerr —{' '}
-            <a
-              href="https://storymode.help"
-              target="_blank"
-              rel="noreferrer"
-            >
-              All rights reserved
-            </a>
+            © {new Date().getFullYear()} William Sawyerr — All rights reserved
           </div>
           <div className="about-actions">
-            <button onClick={onClose} className="about-btn-neutral">Close</button>
+            <button onClick={onClose} className="about-btn-neutral" ref={footerCloseRef}>Close</button>
           </div>
         </footer>
       </div>

@@ -15,18 +15,16 @@ The app window opens after the renderer dev server (Vite) is ready.
 - `npm run package` – Package unsigned desktop app (artifacts in `dist/`).
 - `npm run lint` / `npm run format` – Lint & format sources.
 
-## Shell Overview (September 2025 refresh)
-- **Menu bar** now reflects StoryMode concepts: File menu manages stories, narratives, preview, printing, and settings. Edit surfaces writer actions (select line/block, comment). View separates Light/Dark/Auto appearance from installable themes and exposes panel toggles. Tools hosts AI/Git placeholders and update checks. Help links to docs/support.
-- **World browser** replaces the generic explorer. Stories, narratives, and scenes appear in a structured tree; entries are keyboard-accessible.
-- **Integrated welcome** page uses panels instead of floating cards, guiding writers through story-oriented actions.
-- **Preview** runs in place of the editor. Toggled via File → Preview Story or the status controls; state is synced to the menu.
-- **Inspector** defaults to metadata and diagnostics, with panel visibility controlled from the View menu.
-- **Status bar** now reports story context (document type, encoding, scene count, diagnostics) and restores the notification bell placeholder for system alerts.
-- **Themes**: Light/Dark/Auto modes coexist with installable presets (StoryMode Dark ships by default). The renderer syncs theme state back to Electron for accurate menu checkmarks.
-- **Update, Git, AI** integration points are stubbed with IPC hooks so the backend services can attach without further shell surgery.
+## Shell Overview (MVP Scope)
+- **Menu bar**: Minimal File (New Story), View (Themes: Auto / Light Mode / Dark Mode; Panels: Sidebar, Details Panel, Status Bar; Window controls), Help (About).
+- **Explorer Sidebar**: Shows current story hierarchy after creating a new story (Story → Untitled Narrative → Untitled Scene 1).
+- **Welcome View**: Displayed until a story is created.
+- **Preview / Advanced Panels**: Future features; currently only core panels listed above are togglable.
+- **Themes**: Single radio group (Auto adapts to system, Light Mode, Dark Mode). Plugin themes may append later.
+- **About Dialog**: Draggable anywhere, single top close button.
 
 ## Directory Overview
-See `doc/FOLDER_STRUCTURE.md` for rationale.
+See `docs/FOLDER_STRUCTURE.md` for rationale.
 
 Key runtime code:
 - `src/main/` – Electron main process, menu + IPC glue.
@@ -53,13 +51,14 @@ Key runtime code:
 5. Add status notifications feed behind the bell icon.
 
 ## Documentation
-See the `doc/` folder for:
+See the `docs/` folder for:
 - `MVP_SCOPE.md` – Acceptance criteria.
 - `ARCHITECTURE_DRAFT.md` – Process + IPC design.
 - `STATE_MODEL.md` – Store contracts.
 - `SERVICES_API.md` – Service wrapper specs.
 - `DEPENDENCIES_TOOLING.md` – Tooling choices.
 - `RISKS_SUCCESS.md` – Risks & metrics.
+- `STORYMODE_SPEC.md` – Canonical product behavior (scaffolding, menus, theming).
 
 ---
 Generated scaffold date: 2025-09-14 (UI refresh 2025-09-24)

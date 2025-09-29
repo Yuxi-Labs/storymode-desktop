@@ -212,11 +212,6 @@ function buildMenu(win: BrowserWindow) {
           accelerator: "CmdOrCtrl+Shift+S",
           click: () => win.webContents.send("file:saveStoryAs"),
         },
-        {
-          label: "Save All Narrative Files",
-          accelerator: "CmdOrCtrl+Alt+S",
-          click: () => win.webContents.send("file:saveAllNarratives"),
-        },
         { type: "separator" },
         {
           label: "Preview Story",
@@ -277,91 +272,95 @@ function buildMenu(win: BrowserWindow) {
     {
       label: "View",
       submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        { role: "togglefullscreen" },
-        { type: "separator" },
-        {
-          label: "Appearance",
-          submenu: [
-            {
-              label: "Light Mode",
-              type: "radio",
-              enabled: !appearanceDisabled,
-              checked: shellState.themeMode === "light" && !shellState.themeId,
-              click: () => win.webContents.send("ui:setThemeMode", "light"),
-            },
-            {
-              label: "Dark Mode",
-              type: "radio",
-              enabled: !appearanceDisabled,
-              checked: shellState.themeMode === "dark" && !shellState.themeId,
-              click: () => win.webContents.send("ui:setThemeMode", "dark"),
-            },
-            {
-              label: "Auto",
-              type: "radio",
-              enabled: !appearanceDisabled,
-              checked: shellState.themeMode === "auto" && !shellState.themeId,
-              click: () => win.webContents.send("ui:setThemeMode", "auto"),
-            },
-          ],
-        },
         {
           label: "Themes",
+          submenu: (() => {
+            const items: MenuItemConstructorOptions[] = [
+              {
+                label: "Auto",
+                type: "radio",
+                checked: shellState.themeId == null && shellState.themeMode === "auto",
+                click: () => {
+                  win.webContents.send("ui:applyThemePreset", null);
+                  win.webContents.send("ui:setThemeMode", "auto");
+                },
+              },
+              {
+                label: "Light Mode",
+                type: "radio",
+                checked: shellState.themeId == null && shellState.themeMode === "light",
+                click: () => {
+                  win.webContents.send("ui:applyThemePreset", null);
+                  win.webContents.send("ui:setThemeMode", "light");
+                },
+              },
+              {
+                label: "Dark Mode",
+                type: "radio",
+                checked: shellState.themeId == null && shellState.themeMode === "dark",
+                click: () => {
+                  win.webContents.send("ui:applyThemePreset", null);
+                  win.webContents.send("ui:setThemeMode", "dark");
+                },
+              },
+            ];
+            // Placeholder for plugin-provided themes (future). If any, add separator + radio items.
+            const pluginThemes: { id: string; label: string }[] = []; // currently none
+            if (pluginThemes.length) {
+              items.push({ type: "separator" });
+              for (const pt of pluginThemes) {
+                items.push({
+                  label: pt.label,
+                  type: "radio",
+                  checked: shellState.themeId === pt.id,
+                  click: () => win.webContents.send("ui:applyThemePreset", pt.id),
+                });
+              }
+            }
+            return items;
+          })(),
+        },
+        { type: "separator" },
+        {
+          label: "Panels",
           submenu: [
             {
-              label: "StoryMode Dark",
-              type: "radio",
-              checked: shellState.themeId === "storymode-dark",
-              click: () => win.webContents.send("ui:applyThemePreset", "storymode-dark"),
-            },
-            { type: "separator" },
-            {
-              label: "Clear Theme Selection",
-              enabled: Boolean(shellState.themeId),
-              click: () => win.webContents.send("ui:applyThemePreset", null),
+              label: "Sidebar",
+              type: "checkbox",
+              checked: !shellState.sidebarCollapsed,
+              click: () => win.webContents.send("ui:toggleSidebar"),
             },
             {
-              label: "Manage Themes…",
-              enabled: false,
+              label: "Details Panel",
+              type: "checkbox",
+              checked: shellState.inspectorVisible,
+              click: () => win.webContents.send("ui:toggleInspector"),
+            },
+            {
+              label: "Status Bar",
+              type: "checkbox",
+              checked: shellState.statusBarVisible,
+              click: () => win.webContents.send("ui:toggleStatusBar"),
             },
           ],
         },
         { type: "separator" },
         {
-          label: "World Browser",
-          type: "checkbox",
-          checked: !shellState.sidebarCollapsed,
-          click: () => win.webContents.send("ui:toggleSidebar"),
+          label: "Window",
+          submenu: [
+            { role: "minimize" },
+            {
+              label: "Maximize",
+              click: () => {
+                if (win.isMaximized()) {
+                  win.unmaximize();
+                } else {
+                  win.maximize();
+                }
+              },
+            },
+          ],
         },
-        {
-          label: "Inspector",
-          type: "checkbox",
-          checked: shellState.inspectorVisible,
-          click: () => win.webContents.send("ui:toggleInspector"),
-        },
-        {
-          label: "Status Bar",
-          type: "checkbox",
-          checked: shellState.statusBarVisible,
-          click: () => win.webContents.send("ui:toggleStatusBar"),
-        },
-        { type: "separator" },
-        {
-          label: "Reload",
-          accelerator: "CmdOrCtrl+R",
-          click: () => win.webContents.reload(),
-        },
-        ...(isDev
-          ? [
-              {
-                label: "Toggle Developer Tools",
-                accelerator: process.platform === "darwin" ? "Alt+Cmd+I" : "Ctrl+Shift+I",
-                click: () => win.webContents.toggleDevTools(),
-              } as MenuItemConstructorOptions,
-            ]
-          : []),
       ],
     },
     {

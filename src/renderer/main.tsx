@@ -19,6 +19,58 @@ import { FileList } from "./components/FileList.js";
 import { PreviewPanel } from "./components/PreviewPanel.js";
 import { selectUI as _selectUI } from './store/store.js';
 import { AboutDialog } from './components/AboutDialog.js';
+// useStore already imported above from './store/store.js'
+
+// Set up global theme listeners exactly once.
+function installThemeListeners() {
+  const win = window as any;
+  if (win.__storymodeThemeListenersInstalled) return;
+  win.__storymodeThemeListenersInstalled = true;
+  const rootEl = document.documentElement;
+  const applyDomTheme = () => {
+    const state = useStore.getState();
+    rootEl.dataset.theme = state.ui.theme; // simple data attribute for CSS hooks
+  };
+  // Initial apply
+  applyDomTheme();
+  window.addEventListener('menu:setThemeMode', (e: any) => {
+    const mode = e.detail as 'light' | 'dark' | 'auto';
+    useStore.getState().setThemeMode(mode);
+    try { localStorage.setItem('storymode.themeMode', mode); } catch { /* ignore */ }
+    try { localStorage.removeItem('storymode.themeId'); } catch { /* ignore */ }
+    applyDomTheme();
+  });
+  window.addEventListener('menu:applyThemePreset', (e: any) => {
+    const themeId = (e.detail as string | null) || null;
+    useStore.getState().applyThemePreset(themeId);
+    try {
+      if (themeId) localStorage.setItem('storymode.themeId', themeId); else localStorage.removeItem('storymode.themeId');
+    } catch { /* ignore */ }
+    applyDomTheme();
+  });
+  // React to system scheme changes if in auto mode
+  try {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    mql.addEventListener('change', () => {
+      const st = useStore.getState();
+      if (st.ui.themeMode === 'auto' && !st.ui.themeId) {
+        st.applySystemTheme(mql.matches ? 'dark' : 'light');
+        applyDomTheme();
+      }
+    });
+  } catch { /* ignore */ }
+  // Keep DOM attribute in sync with store changes triggered within app
+  let prevTheme = useStore.getState().ui.theme;
+  useStore.subscribe((state) => {
+    const nextTheme = state.ui.theme;
+    if (nextTheme !== prevTheme) {
+      prevTheme = nextTheme;
+      applyDomTheme();
+    }
+  });
+}
+
+installThemeListeners();
 
 const Inspector: React.FC = () => {
   // Inspector panel remains, but is empty

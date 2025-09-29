@@ -34,7 +34,7 @@ export const InfoPanel: React.FC = () => {
         <header>Document metadata</header>
         {hasMetadata ? (
           <dl className="meta-list">
-            {meta.map((item) => (
+            {meta.map((item: MetaItem) => (
               <div key={item.key}>
                 <dt>{item.key.toUpperCase()}</dt>
                 <dd>{item.value || "-"}</dd>

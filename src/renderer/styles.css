@@ -418,11 +418,11 @@ button {
   background: #1f2225; /* slightly darker, flatter */
   border: 1px solid #303539;
   box-shadow: 0 24px 48px -12px rgba(0,0,0,0.65), 0 4px 12px rgba(0,0,0,0.4);
-  border-radius: 16px;
+  border-radius: 0; /* squared */
   padding: 30px 34px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px; /* reduced vertical gap */
   font-family: var(--font-sans);
   animation: aboutFadeIn 160ms ease;
 }
@@ -431,11 +431,12 @@ button {
 
 .about-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  /* Increase this right value to move further left; decrease to move right. */
+  right: var(--about-close-right-offset, 24px);
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: 0; /* squared */
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
@@ -451,21 +452,25 @@ button {
   border-color: var(--border-strong);
 }
 
-.about-header { display: flex; gap: 22px; align-items: center; }
+.about-header { display: flex; gap: 10px; align-items: center; }
 
-.about-mascot { flex-shrink: 0; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4)); }
+.about-mascot-wrapper { position:relative; flex-shrink:0; display:flex; align-items:flex-start; margin-left: var(--about-mascot-left-nudge, -22px); }
+.about-mascot { display:block; }
+.about-mascot { flex-shrink:0; height: 100%; max-height: 132px; width: auto; aspect-ratio: 1/1; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4)); object-fit: contain; }
+.about-header { display:flex; gap:16px; align-items:stretch; }
+.about-heading-text { display:flex; flex-direction:column; justify-content:flex-start; }
 
-.about-title { margin: 0 0 4px; font-size: 40px; letter-spacing: 0.3px; font-weight: 400; color: #fafafa; }
+.about-title { margin: 0 0 6px; font-size: 42px; letter-spacing: 0.3px; font-weight: 600; color: #fafafa; }
 
-.about-tagline { margin: 0; font-size: 16px; line-height: 1.35; color: #c2c7cc; font-weight: 400; }
+.about-tagline { margin: 0; font-size: 19px; line-height: 1.34; color: #c2c7cc; font-weight: 400; }
 
-.about-versions { background: #15181a; border: 1px solid #252a2e; border-radius: 16px; padding: 18px 28px 14px; display:flex; flex-direction:column; gap:8px; }
-.about-version-row { display:flex; justify-content:space-between; align-items:center; font-size:14px; font-weight:400; color:#ffffff; letter-spacing:.2px; }
+.about-versions { background: #15181a; border: 1px solid #252a2e; border-radius: 0; padding: 18px 28px 14px; display:flex; flex-direction:column; gap:8px; }
+.about-version-row { display:flex; justify-content:space-between; align-items:center; font-size:15px; font-weight:400; color:#ffffff; letter-spacing:.2px; }
 .about-version-row + .about-version-row { /* Removed border to eliminate underline effect */ margin-top:8px; }
 .about-ver-label { opacity:0.92; }
-.about-ver-value { font-variant-numeric: tabular-nums; font-weight:400; opacity:0.85; }
+.about-ver-value { font-variant-numeric: tabular-nums; font-weight:400; opacity:0.87; }
 
-.about-footer { display: flex; flex-direction: column; gap: 18px; }
+.about-footer { position:relative; display: flex; flex-direction: column; gap: 18px; }
 .about-footer a,
 .about-footer a:visited,
 .about-footer a:hover,
@@ -473,10 +478,10 @@ button {
 .about-footer a:focus { color: #6fb3ff; text-decoration: none !important; outline: none; }
 .about-footer a:hover { color: #84c2ff; }
 .about-footer a:active { color: #5aa6fa; }
-.about-footer a:focus-visible { box-shadow: 0 0 0 2px #0d1113, 0 0 0 4px #6fb3ff; border-radius:4px; }
-.about-copyright { font-size: 14px; line-height:1.5; color: #b5bcc2; letter-spacing: .35px; font-weight:400; }
-.about-actions { display: flex; justify-content: flex-end; }
-.about-btn-neutral { background: #2b3034; color: #e6e6e6; border: 1px solid #3b4247; font-size: 14px; padding: 8px 20px; border-radius: 8px; font-weight: 400; letter-spacing: .2px; }
+.about-footer a:focus-visible { box-shadow: 0 0 0 2px #0d1113, 0 0 0 4px #6fb3ff; border-radius:0; }
+.about-copyright { font-size: 16px; line-height:1.5; color: #b5bcc2; letter-spacing: .35px; font-weight:400; }
+.about-actions { display: flex; justify-content: flex-end; padding-right: 14px; margin-right: -14px; }
+.about-btn-neutral { background: #2b3034; color: #e6e6e6; border: 1px solid #3b4247; font-size: 15px; padding: 9px 22px; border-radius: 0; font-weight: 400; letter-spacing: .2px; }
 .about-btn-neutral:hover { background: #33393e; }
 .about-btn-neutral:active { background: #394146; }
 
