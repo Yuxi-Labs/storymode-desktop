@@ -1,149 +1,204 @@
-﻿import React, { useState } from "react";
-import { useStore, selectFile } from "../store/store.js";
+﻿import React, { useState, useEffect, useRef } from "react";
+import { useStore } from "../store/store.js";
 
-// Hierarchical model rendering
-
-const interact = (
-  event: React.MouseEvent | React.KeyboardEvent,
-  action: () => void,
-) => {
-  if ("key" in event) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      action();
-    }
-  } else {
-    action();
-  }
-};
+interface FlatItem { id: string; type: 'story' | 'narrative' | 'scene'; parent?: string; expandable: boolean; expanded?: boolean; narrativeId?: string; sceneId?: string; }
 
 export const FileList: React.FC = () => {
-  const file = useStore(selectFile);
-  const storyModel = useStore((s) => s.storyModel);
-  const addNarrative = useStore((s) => s.addNarrative);
-  const addScene = useStore((s) => s.addScene);
-  const setActiveScene = useStore((s) => s.setActiveScene);
-  const setActiveStory = useStore((s) => s.setActiveStory);
-  const setActiveNarrative = useStore((s) => s.setActiveNarrative);
+  // Single useStore to keep hook order stable and avoid React hook mismatch warnings.
+  const {
+    storyModel,
+    setActiveStory,
+    setActiveNarrative,
+    setActiveScene,
+    renameStory,
+    renameNarrative,
+    renameScene,
+    deleteScene,
+  } = useStore(s => ({
+    storyModel: s.storyModel,
+    setActiveStory: s.setActiveStory,
+    setActiveNarrative: s.setActiveNarrative,
+    setActiveScene: s.setActiveScene,
+    renameStory: s.renameStory,
+    renameNarrative: s.renameNarrative,
+    renameScene: s.renameScene,
+    deleteScene: s.deleteScene,
+  }));
 
-  const hasStory = Boolean(storyModel.story);
-  if (!hasStory) return null;
+  const [storyExpanded, setStoryExpanded] = useState(true);
+  const [narrativeExpanded, setNarrativeExpanded] = useState<Record<string, boolean>>({});
+  const [focusId, setFocusId] = useState('story');
+  // Removed custom menu; using Electron native context menu via preload IPC
+  const listRef = useRef<HTMLUListElement>(null);
 
-  const story = storyModel.story!;
-  const storyFileName = `${story.title || 'Untitled'}.story`;
+  const story = storyModel.story; // may be undefined initially while creating a new story
 
-  const handleAddNarrative = () => {
-    const id = addNarrative();
-    if (id) {
-      // Auto add first scene for new narrative
-      const sceneId = addScene(id);
-      if (sceneId) setActiveScene(sceneId);
+  // Build flat list safely even if story undefined
+  const flat: FlatItem[] = [];
+  if (story) {
+    flat.push({ id: 'story', type: 'story', expandable: true, expanded: storyExpanded });
+    if (storyExpanded) {
+      for (const nid of story.narrativeIds) {
+        const n = storyModel.narratives[nid]; if (!n) continue;
+        const nExpanded = narrativeExpanded[nid] !== false;
+        flat.push({ id: `narrative:${nid}`, type: 'narrative', expandable: true, expanded: nExpanded, narrativeId: nid, parent: 'story' });
+        if (nExpanded) {
+          for (const sid of n.sceneIds) {
+            const sc = storyModel.scenes[sid]; if (!sc) continue;
+            flat.push({ id: `scene:${sid}`, type: 'scene', expandable: false, sceneId: sid, parent: `narrative:${nid}` });
+          }
+        }
+      }
+    }
+  }
+  const focusIndex = flat.findIndex(f => f.id === focusId);
+
+  const moveFocus = (nextId?: string) => {
+    if (!nextId) return; setFocusId(nextId);
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-treeid="${nextId}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  };
+
+  const toggleNarrative = (nid: string) => setNarrativeExpanded({ ...narrativeExpanded, [nid]: narrativeExpanded[nid] === false });
+
+  const handleKeyNav = (e: React.KeyboardEvent, item: FlatItem) => {
+    const key = e.key;
+    if ([ 'ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End','Enter',' ' ].includes(key)) { e.preventDefault(); e.stopPropagation(); }
+    switch (key) {
+      case 'ArrowDown': moveFocus(flat[focusIndex + 1]?.id); break;
+      case 'ArrowUp': moveFocus(flat[focusIndex - 1]?.id); break;
+      case 'Home': moveFocus(flat[0]?.id); break;
+      case 'End': moveFocus(flat[flat.length -1]?.id); break;
+      case 'ArrowRight': {
+        if (item.expandable) {
+          if (!item.expanded) {
+            if (item.type === 'story') setStoryExpanded(true);
+            else if (item.type === 'narrative' && item.narrativeId) toggleNarrative(item.narrativeId);
+          } else {
+            const firstChild = flat.find(f => f.parent === item.id); if (firstChild) moveFocus(firstChild.id);
+          }
+        }
+        break; }
+      case 'ArrowLeft': {
+        if (item.expandable && item.expanded) {
+          if (item.type === 'story') setStoryExpanded(false);
+          else if (item.type === 'narrative' && item.narrativeId) toggleNarrative(item.narrativeId);
+        } else if (item.parent) moveFocus(item.parent);
+        break; }
+      case 'Enter':
+      case ' ': {
+      if (item.type === 'story') setActiveStory();
+        else if (item.type === 'narrative' && item.narrativeId) setActiveNarrative(item.narrativeId);
+        else if (item.type === 'scene' && item.sceneId) setActiveScene(item.sceneId);
+        if (key === ' ' && item.expandable) {
+          if (item.type === 'story') setStoryExpanded(!storyExpanded);
+          else if (item.type === 'narrative' && item.narrativeId) toggleNarrative(item.narrativeId);
+        }
+        break; }
     }
   };
 
-  const handleAddScene = (narrativeId: string) => {
-    const sceneId = addScene(narrativeId);
-    if (sceneId) setActiveScene(sceneId);
-  };
+  // Context menu
+  // Listen for native rename/delete events from main
+  useEffect(() => {
+    const handleRename = (e: Event) => {
+      const detail: any = (e as CustomEvent).detail;
+      if (!detail) return;
+      if (detail.type === 'story') renameStory(detail.name);
+      else if (detail.type === 'narrative') renameNarrative(detail.id.split(':').pop(), detail.name);
+      else if (detail.type === 'scene') renameScene(detail.id.split(':').pop(), detail.name);
+    };
+    const handleDeleteScene = (e: Event) => {
+      const detail: any = (e as CustomEvent).detail;
+      if (detail?.id) deleteScene(detail.id);
+    };
+    window.addEventListener('explorer:renameResult', handleRename as any);
+    window.addEventListener('explorer:deleteScene', handleDeleteScene as any);
+    return () => {
+      window.removeEventListener('explorer:renameResult', handleRename as any);
+      window.removeEventListener('explorer:deleteScene', handleDeleteScene as any);
+    };
+  }, [renameStory, renameNarrative, renameScene, deleteScene]);
+
+  // (Removed old in-React context menu helpers; native Electron menu handles rename/delete.)
+
+  // Stabilize focus id if item removed
+  useEffect(() => {
+    if (flat.length === 0) return; // nothing to validate yet
+    if (!flat.some(f => f.id === focusId)) setFocusId(flat[0].id);
+  }, [flat, focusId]);
 
   const activeEntity = storyModel.activeEntity;
-  const handleStorySelect = (e: React.MouseEvent | React.KeyboardEvent) => interact(e, () => setActiveStory());
-  const handleNarrativeSelect = (nid: string) => (e: React.MouseEvent | React.KeyboardEvent) => interact(e, () => setActiveNarrative(nid));
-  // Narrative deletion deliberately disabled until proper UX is provided.
-
-  // Expand / collapse state
-  const [storyExpanded, setStoryExpanded] = useState(true);
-  const [narrativeExpanded, setNarrativeExpanded] = useState<Record<string, boolean>>({});
-
-  const toggleNarrative = (id: string) => {
-    setNarrativeExpanded({ ...narrativeExpanded, [id]: narrativeExpanded[id] === false });
-  };
-
-  const storyChevron = storyExpanded ? '▼' : '▶';
 
   return (
-    <div className="world-panel" role="region" aria-label="Story Structure">
-      <header className="world-header">
-        <div
-          className={`world-file${activeEntity?.type === 'story' ? ' active' : ''}`}
-          data-tip="Story Root"
-          role="button"
-          tabIndex={0}
-          onClick={handleStorySelect}
-          onKeyDown={handleStorySelect}
-        >
-          <span className="world-key">STORY</span>
-          <span className="world-value">{storyFileName}</span>
-        </div>
-        <div className="world-actions" aria-label="Structure actions">
-          <span
-            className="world-action"
-            data-tip="New Narrative"
-            role="button"
-            tabIndex={0}
-            onClick={(e) => interact(e, handleAddNarrative)}
-            onKeyDown={(e) => interact(e, handleAddNarrative)}
-          >＋N</span>
-        </div>
-      </header>
-      <div className="world-tree" role="tree" aria-label="Story Files">
-        <ul className="world-level story-root" role="group" aria-label="Story File">
-          <li className={`world-node story-file${activeEntity?.type === 'story' ? ' active' : ''}`}
-              role="treeitem" aria-expanded={storyExpanded} aria-level={1} tabIndex={0}
-              onClick={(e) => { interact(e, () => setActiveStory()); setStoryExpanded(!storyExpanded); }}
-              onKeyDown={(e) => interact(e, () => { setActiveStory(); setStoryExpanded(!storyExpanded); })}>
-            <div className="world-node-row">
-              <span className="chevron" aria-hidden>{storyChevron}</span>
-              <span className="world-node-label">{storyFileName}</span>
-            </div>
+    <div className="vsc-explorer" role="region" aria-label="Story Explorer">
+      <ul className="vsc-tree" role="tree" ref={listRef}>
+        {flat.length === 0 && (
+          <li className="vsc-item" aria-disabled="true" style={{ padding: '4px 8px', opacity: 0.7 }}>
+            Initializing story…
           </li>
-        </ul>
-        {storyExpanded && (
-          <ul className="world-level narratives" role="group" aria-label="Narratives">
-          {story.narrativeIds.map((nid) => {
-          const narrative = storyModel.narratives[nid];
-          if (!narrative) return null;
-          const isActive = activeEntity?.type === 'narrative' && activeEntity.id === nid;
-          const expanded = narrativeExpanded[nid] !== false; // default expanded
-          const chevron = expanded ? '▼' : '▶';
+        )}
+        {flat.map(item => {
+          const isFocused = focusId === item.id;
+          let isActive = false;
+          if (activeEntity) {
+            if (item.type === 'story' && activeEntity.type === 'story') isActive = true;
+            else if (item.type === 'narrative' && activeEntity.type === 'narrative' && activeEntity.id === item.narrativeId) isActive = true;
+            else if (item.type === 'scene' && activeEntity.type === 'scene' && activeEntity.id === item.sceneId) isActive = true;
+          }
+          const level = item.type === 'story' ? 1 : item.type === 'narrative' ? 2 : 3;
+          const storyFileNameLabel = (storyModel.story?.title || 'Story') + '.story';
+          const label = item.type === 'story'
+            ? storyFileNameLabel
+            : item.type === 'narrative'
+              ? `${storyModel.narratives[item.narrativeId!]?.title}.narrative`
+              : storyModel.scenes[item.sceneId!]?.title;
+          const expanded = item.expandable ? item.expanded : undefined;
+          const rowClass = [ 'vsc-item', item.type, isActive ? 'selected' : '', isFocused ? 'focused' : '', item.expandable && expanded ? 'expanded' : '' ].filter(Boolean).join(' ');
           return (
-            <li key={nid} className={`world-node narrative${isActive ? ' active' : ''}`} role="treeitem" aria-level={2}
-                aria-expanded={expanded} tabIndex={0}
-                aria-label={`${narrative.title}.narrative`} data-tip={narrative.title}
-                onClick={(e) => interact(e, () => { setActiveNarrative(nid); toggleNarrative(nid); })}
-                onKeyDown={(e) => interact(e, () => { setActiveNarrative(nid); toggleNarrative(nid); })}>
-              <div className="world-node-row">
-                <span className="chevron" aria-hidden>{chevron}</span>
-                <span className="world-node-label">{narrative.title}.narrative</span>
-                <span className="world-action minor" data-tip="New Scene" role="button" tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); interact(e, () => handleAddScene(nid)); }}
-                      onKeyDown={(e) => { e.stopPropagation(); interact(e, () => handleAddScene(nid)); }}>＋S</span>
+            <li
+              key={item.id}
+              data-treeid={item.id}
+              role="treeitem"
+              aria-level={level}
+              aria-expanded={item.expandable ? expanded : undefined}
+              aria-selected={isActive || undefined}
+              tabIndex={isFocused ? 0 : -1}
+              className={rowClass}
+              onKeyDown={(e) => handleKeyNav(e, item)}
+              onClick={(e) => {
+                setFocusId(item.id);
+                if (item.type === 'story') setActiveStory();
+                else if (item.type === 'narrative' && item.narrativeId) setActiveNarrative(item.narrativeId);
+                else if (item.type === 'scene' && item.sceneId) setActiveScene(item.sceneId);
+              }}
+              onContextMenu={(e) => { e.preventDefault(); setFocusId(item.id); const title = item.type==='story'? (storyModel.story?.title||'Story'): item.type==='narrative'? storyModel.narratives[item.narrativeId!]?.title : storyModel.scenes[item.sceneId!]?.title; window.storymode?.explorerContextMenu({ id: item.id, type: item.type, narrativeId: item.narrativeId, sceneId: item.sceneId, title }); }}
+            >
+              <div className="row" style={{ paddingLeft: (level -1) * 8, display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
+                <span className="label" style={{ flex:1 }} title={label}>{label}</span>
+                {item.expandable ? (
+                  <span
+                    className="chevron"
+                    style={{ marginLeft:4, marginRight:0, cursor:'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); if (item.type === 'story') setStoryExpanded(!storyExpanded); else if (item.type === 'narrative' && item.narrativeId) toggleNarrative(item.narrativeId); }}
+                    aria-label={expanded ? 'Collapse' : 'Expand'}
+                  >
+                    {expanded ? (
+                      // Up arrow when expanded
+                      <svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    ) : (
+                      // Down arrow when collapsed
+                      <svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    )}
+                  </span>
+                ) : null }
               </div>
-              {expanded && narrative.sceneIds.length > 0 && (
-                <ul className="world-children scenes" role="group" aria-label={`Scenes of ${narrative.title}`}> 
-                  {narrative.sceneIds.map((sid) => {
-                    const scene = storyModel.scenes[sid];
-                    if (!scene) return null;
-                    const active = activeEntity?.type === 'scene' && activeEntity.id === sid;
-                    return (
-                      <li key={sid} className={`world-node scene${active ? ' active' : ''}`} role="treeitem" aria-level={3} tabIndex={0}
-                          aria-label={scene.title} data-tip={scene.title}
-                          onClick={(e) => interact(e, () => setActiveScene(sid))}
-                          onKeyDown={(e) => interact(e, () => setActiveScene(sid))}>
-                        <div className="world-node-row">
-                          <span className="world-node-label">{scene.title}</span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
             </li>
           );
-          })}
-          </ul>
-        )}
-      </div>
+        })}
+      </ul>
     </div>
   );
 };
+
+export default FileList;

@@ -160,7 +160,42 @@ async function createWindow() {
 
   console.log("[main] createWindow complete");
 
+  // Open devtools automatically in development to aid debugging.
+  if (isDev) {
+    try {
+      win.webContents.openDevTools({ mode: 'detach' });
+    } catch (err) {
+      console.warn('[main] failed to open devtools automatically', err);
+    }
+  }
+
 }
+
+type ExplorerContextPayload = {
+  id: string; // composite id like story | narrative:XYZ | scene:ABC
+  type: 'story' | 'narrative' | 'scene';
+  narrativeId?: string;
+  sceneId?: string;
+  title?: string;
+};
+
+// Custom UI now handled fully in renderer; main just notifies renderer to show overlays.
+
+ipcMain.on('explorer:contextMenu', async (event, payload: ExplorerContextPayload) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  const template: MenuItemConstructorOptions[] = [];
+  template.push({ label: 'Rename', click: () => {
+    win.webContents.send('explorer:requestRename', payload);
+  }});
+  if (payload.type === 'scene') {
+    template.push({ label: 'Delete', click: () => {
+      win.webContents.send('explorer:requestDeleteScene', { id: payload.sceneId, title: payload.title });
+    }});
+  }
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: win });
+});
 
 function getVersion(pkgName: string): string {
   try {
@@ -360,6 +395,15 @@ function buildMenu(win: BrowserWindow) {
               },
             },
           ],
+        },
+        { type: 'separator' },
+        {
+          label: 'Toggle Developer Tools',
+          accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I',
+          click: () => {
+            const wc = win.webContents;
+            if (wc.isDevToolsOpened()) wc.closeDevTools(); else wc.openDevTools({ mode: 'detach' });
+          }
         },
       ],
     },

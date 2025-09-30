@@ -37,6 +37,7 @@ declare global {
         themeMode?: "light" | "dark" | "auto";
         themeId?: string | null;
       }): void;
+      explorerContextMenu(payload: { id: string; type: 'story'|'narrative'|'scene'; narrativeId?: string; sceneId?: string; title?: string }): void;
     };
   }
 }

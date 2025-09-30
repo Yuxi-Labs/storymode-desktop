@@ -19,6 +19,9 @@ import { FileList } from "./components/FileList.js";
 import { PreviewPanel } from "./components/PreviewPanel.js";
 import { selectUI as _selectUI } from './store/store.js';
 import { AboutDialog } from './components/AboutDialog.js';
+
+interface RenameState { open: boolean; id: string; type: 'story'|'narrative'|'scene'; current: string; }
+interface DeleteConfirmState { open: boolean; id: string; title: string; }
 // useStore already imported above from './store/store.js'
 
 // Set up global theme listeners exactly once.
@@ -96,7 +99,8 @@ const WelcomeEmptyState: React.FC = () => {
     }
   };
 
-  const handleNew = () => useStore.getState().newFile();
+  // Create a new Story (was incorrectly calling newFile which leaves hasStory = false)
+  const handleNew = () => useStore.getState().newStory();
   const handleOpen = async () => {
     const target = await window.storymode.openFileDialog();
     if (target?.canceled || !target.path) return;
@@ -288,6 +292,8 @@ const StatusBar: React.FC = () => {
 
 const App: React.FC = () => {
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [renameState, setRenameState] = useState<RenameState>({ open:false, id:'', type:'scene', current:'' });
+  const [deleteState, setDeleteState] = useState<DeleteConfirmState>({ open:false, id:'', title:'' });
   const file = useStore(selectFile);
   const ui = useStore(selectUI);
   useDebouncedParse();
@@ -381,6 +387,46 @@ const App: React.FC = () => {
     return () => window.removeEventListener('menu:openAbout', open);
   }, []);
 
+  // Handle context menu rename + delete requests from main
+  useEffect(() => {
+    const handleReqRename = (e: Event) => {
+      const detail: any = (e as CustomEvent).detail;
+      if (!detail) return;
+      let current = '';
+      const st = useStore.getState();
+      if (detail.type === 'story') current = st.storyModel.story?.title || '';
+      else if (detail.type === 'narrative') current = st.storyModel.narratives[detail.narrativeId!]?.title || '';
+      else if (detail.type === 'scene') current = st.storyModel.scenes[detail.sceneId!]?.title || '';
+      setRenameState({ open:true, id: detail.id, type: detail.type, current });
+    };
+    const handleReqDelete = (e: Event) => {
+      const detail: any = (e as CustomEvent).detail;
+      if (!detail) return;
+      setDeleteState({ open:true, id: detail.id, title: detail.title || '' });
+    };
+    window.addEventListener('explorer:requestRename', handleReqRename as any);
+    window.addEventListener('explorer:requestDeleteScene', handleReqDelete as any);
+    return () => {
+      window.removeEventListener('explorer:requestRename', handleReqRename as any);
+      window.removeEventListener('explorer:requestDeleteScene', handleReqDelete as any);
+    };
+  }, []);
+
+  const applyRename = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) { setRenameState({ ...renameState, open:false }); return; }
+    const st = useStore.getState();
+    if (renameState.type === 'story') st.renameStory(trimmed);
+    else if (renameState.type === 'narrative') st.renameNarrative(renameState.id.split(':').pop()!, trimmed);
+    else if (renameState.type === 'scene') st.renameScene(renameState.id.split(':').pop()!, trimmed);
+    setRenameState({ ...renameState, open:false });
+  };
+  const applyDeleteScene = () => {
+    const st = useStore.getState();
+    st.deleteScene(deleteState.id);
+    setDeleteState({ open:false, id:'', title:'' });
+  };
+
   return (
     <div className="app-shell">
       <div className="workspace">
@@ -396,6 +442,48 @@ const App: React.FC = () => {
       </div>
       {ui.statusBarVisible && <StatusBar />}
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      {renameState.open && (
+  <div className="modal-overlay" role="presentation" onMouseDown={e => { if (e.target===e.currentTarget) setRenameState({ ...renameState, open:false }); }}>
+          <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+            <header className="modal-header">
+              <h1 id="rename-title" className="modal-title">Rename {renameState.type}</h1>
+              <button className="modal-close" aria-label="Close" onClick={() => setRenameState({ ...renameState, open:false })}>×</button>
+            </header>
+            <div className="modal-body">
+              <label className="modal-label">New name</label>
+              <input
+                className="modal-input"
+                defaultValue={renameState.current}
+                autoFocus
+                onKeyDown={(e) => { if (e.key==='Enter') applyRename((e.target as HTMLInputElement).value); if (e.key==='Escape') setRenameState({ ...renameState, open:false }); }}
+              />
+            </div>
+            <footer className="modal-footer">
+              <button className="btn btn-neutral" onClick={() => setRenameState({ ...renameState, open:false })}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => {
+                const el = (document.querySelector('.modal-input') as HTMLInputElement|undefined); if (el) applyRename(el.value);
+              }}>Rename</button>
+            </footer>
+          </div>
+        </div>
+      )}
+      {deleteState.open && (
+        <div className="modal-overlay" role="presentation" onMouseDown={e => { if (e.target===e.currentTarget) setDeleteState({ open:false, id:'', title:'' }); }}>
+          <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+            <header className="modal-header">
+              <h1 id="delete-title" className="modal-title">Delete scene</h1>
+              <button className="modal-close" aria-label="Close" onClick={() => setDeleteState({ open:false, id:'', title:'' })}>×</button>
+            </header>
+            <div className="modal-body">
+              <p>Are you sure you want to delete <strong>{deleteState.title || 'this scene'}</strong>? This cannot be undone.</p>
+            </div>
+            <footer className="modal-footer">
+              <button className="btn btn-neutral" onClick={() => setDeleteState({ open:false, id:'', title:'' })}>Cancel</button>
+              <button className="btn btn-danger" onClick={applyDeleteScene}>Delete</button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

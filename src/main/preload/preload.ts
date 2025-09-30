@@ -33,6 +33,8 @@ const api = {
   saveAsDialog: () => ipcRenderer.invoke("file:saveAsDialog"),
   syncShellState: (state: ShellSyncState) =>
     ipcRenderer.send("ui:shellState", state),
+  explorerContextMenu: (payload: { id: string; type: 'story'|'narrative'|'scene'; narrativeId?: string; sceneId?: string; title?: string; }) =>
+    ipcRenderer.send('explorer:contextMenu', payload),
 };
 
 const w: any = (globalThis as any).window || globalThis;
@@ -66,6 +68,11 @@ ipcRenderer.on("help:requestFeature", () => emit("menu:requestFeature"));
 ipcRenderer.on("app:openSettings", () => emit("menu:openSettings"));
 ipcRenderer.on("app:checkForUpdates", () => emit("menu:checkForUpdates"));
 ipcRenderer.on("app:openAbout", () => emit("menu:openAbout"));
+
+ipcRenderer.on('explorer:renameResult', (_e, data) => emit('explorer:renameResult', data));
+ipcRenderer.on('explorer:deleteScene', (_e, data) => emit('explorer:deleteScene', data));
+ipcRenderer.on('explorer:requestRename', (_e, data) => emit('explorer:requestRename', data));
+ipcRenderer.on('explorer:requestDeleteScene', (_e, data) => emit('explorer:requestDeleteScene', data));
 
 try {
   contextBridge.exposeInMainWorld("storymode", api);

@@ -131,6 +131,10 @@ export interface StoreState {
   setActiveStory: () => void;
   setActiveNarrative: (id: string) => void;
   deleteNarrative: (id: string) => void;
+  renameStory: (title: string) => void;
+  renameNarrative: (id: string, title: string) => void;
+  renameScene: (id: string, title: string) => void;
+  deleteScene: (id: string) => void;
   serializeStoryComposite: () => string;
   loadStoryComposite: (json: string, path?: string) => boolean;
 }
@@ -658,9 +662,16 @@ export const useStore = create<StoreState>((set, get) => ({
   // Hierarchical model actions
   newStory: (title) => {
     const seed = createSeedStory(title || 'Untitled');
+    // Open directly to the first (active) scene per spec: editor should show Scene 1.
+    const story = seed.story!;
+    const narrativeId = story.narrativeIds[0];
+    const narrative = seed.narratives[narrativeId];
+    const sceneId = seed.activeSceneId!;
+    const scene = seed.scenes[sceneId];
+    const scenePath = `${story.title || 'Untitled'}/${narrative.title || 'Untitled'}/${scene.title}.scene`;
     set((state) => ({
-      storyModel: seed,
-      file: { ...state.file, path: 'Untitled.story', content: seed.storyContent || '', isDirty: true },
+      storyModel: { ...seed, activeEntity: { type: 'scene', id: sceneId } },
+      file: { ...state.file, path: scenePath, content: scene.content, isDirty: false },
     }));
   },
   addNarrative: (title) => {
@@ -744,6 +755,84 @@ export const useStore = create<StoreState>((set, get) => ({
       fileUpdate = { path: `${sm.story.title || 'Untitled'}.story`, content: sm.storyContent || '', isDirty: false } as any;
     }
     set((s) => ({ storyModel: { ...sm, story: { ...sm.story!, narrativeIds: remainingIds }, narratives: newNarratives, scenes: newScenes, activeEntity }, file: { ...s.file, ...fileUpdate } }));
+  },
+  renameStory: (title: string) => {
+    const state = get();
+    const sm = state.storyModel;
+    if (!sm.story) return;
+    const story = { ...sm.story, title };
+    let file = state.file;
+    if (sm.activeEntity?.type === 'story') {
+      file = { ...file, path: `${title || 'Untitled'}.story` };
+    } else if (sm.activeEntity?.type === 'scene') {
+      const scene = sm.scenes[sm.activeEntity.id];
+      const narrative = sm.narratives[scene.narrativeId];
+      file = { ...file, path: `${title || 'Untitled'}/${narrative.title || 'Untitled'}/${scene.title}.scene` };
+    } else if (sm.activeEntity?.type === 'narrative') {
+      const narrative = sm.narratives[sm.activeEntity.id];
+      file = { ...file, path: `${narrative.title || 'Untitled'}.narrative` };
+    }
+    set(() => ({ storyModel: { ...sm, story }, file }));
+  },
+  renameNarrative: (id: string, title: string) => {
+    const state = get();
+    const sm = state.storyModel;
+    const n = sm.narratives[id];
+    if (!n) return;
+    const narratives = { ...sm.narratives, [id]: { ...n, title } };
+    let file = state.file;
+    if (sm.activeEntity?.type === 'narrative' && sm.activeEntity.id === id) {
+      file = { ...file, path: `${title || 'Untitled'}.narrative` };
+    } else if (sm.activeEntity?.type === 'scene') {
+      const sc = sm.scenes[sm.activeEntity.id];
+      const storyTitle = sm.story?.title || 'Untitled';
+      if (sc.narrativeId === id) file = { ...file, path: `${storyTitle}/${title || 'Untitled'}/${sc.title}.scene` };
+    }
+    set(() => ({ storyModel: { ...sm, narratives }, file }));
+  },
+  renameScene: (id: string, title: string) => {
+    const state = get();
+    const sm = state.storyModel;
+    const sc = sm.scenes[id];
+    if (!sc) return;
+    const newScene = { ...sc, title };
+    const scenes = { ...sm.scenes, [id]: newScene };
+    let file = state.file;
+    if (sm.activeEntity?.type === 'scene' && sm.activeEntity.id === id) {
+      const storyTitle = sm.story?.title || 'Untitled';
+      const narrative = sm.narratives[sc.narrativeId];
+      file = { ...file, path: `${storyTitle}/${narrative.title || 'Untitled'}/${title}.scene` };
+    }
+    set(() => ({ storyModel: { ...sm, scenes }, file }));
+  },
+  deleteScene: (id: string) => {
+    const state = get();
+    const sm = state.storyModel;
+    const sc = sm.scenes[id];
+    if (!sc) return;
+    const narrative = sm.narratives[sc.narrativeId];
+    if (!narrative) return;
+    const newScenes = { ...sm.scenes };
+    delete newScenes[id];
+    const newNarrative = { ...narrative, sceneIds: narrative.sceneIds.filter(sid => sid !== id) };
+    const narratives = { ...sm.narratives, [narrative.id]: newNarrative };
+    let activeEntity = sm.activeEntity;
+    let file = state.file;
+    if (activeEntity?.type === 'scene' && activeEntity.id === id) {
+      // fallback to narrative or story
+      if (newNarrative.sceneIds.length > 0) {
+        const first = newNarrative.sceneIds[0];
+        const nextScene = newScenes[first];
+        if (nextScene) {
+          activeEntity = { type: 'scene', id: first };
+          file = { ...file, path: `${sm.story?.title || 'Untitled'}/${narrative.title || 'Untitled'}/${nextScene.title}.scene`, content: nextScene.content, isDirty: false };
+        }
+      } else {
+        activeEntity = { type: 'narrative', id: narrative.id };
+        file = { ...file, path: `${newNarrative.title || 'Untitled'}.narrative`, content: newNarrative.content || '', isDirty: false };
+      }
+    }
+    set(() => ({ storyModel: { ...sm, narratives, scenes: newScenes, activeEntity }, file }));
   },
 }));
 
