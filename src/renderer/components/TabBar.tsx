@@ -9,18 +9,18 @@ export const TabBar: React.FC = () => {
   const hasStory = Boolean(file.path || file.content.length);
   if (!hasStory) return null;
 
-  const caption = useMemo(() => {
-    if (!file.path) return "Unsaved";
-    const sections = file.path.split(/[/\\]/);
-    if (sections.length <= 1) return "";
-    return sections.slice(0, -1).join(" /");
-  }, [file.path]);
-
-  const title = file.path
-    ? file.path.split(/[/\\]/).pop() ?? "Story"
-    : parse.fileKind === "narrative"
-      ? "Untitled Narrative"
-      : "Untitled";
+  const storyModel = useStore(s => s.storyModel);
+  const title = useMemo(() => {
+    const active = storyModel.activeEntity;
+    if (!active) return 'Untitled Story';
+    if (active.type === 'story') return storyModel.story?.title || 'Untitled Story';
+    if (active.type === 'narrative') return storyModel.narratives[active.internalId]?.title || 'Untitled Narrative';
+    if (active.type === 'scene') {
+      const sc = storyModel.scenes[active.internalId];
+      return sc?.title || 'Untitled Scene';
+    }
+    return 'Untitled Story';
+  }, [storyModel]);
 
   const handleClose = () => closeFile();
 
@@ -31,7 +31,7 @@ export const TabBar: React.FC = () => {
           <span className="tab-title">{title}</span>
           {file.isDirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
         </div>
-        {caption && <span className="tab-caption">{caption}</span>}
+  {/* Caption intentionally removed per requirement: no story/narrative chain in scene tab */}
         <div
           className="tab-close"
           role="button"

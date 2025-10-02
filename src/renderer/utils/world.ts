@@ -1,16 +1,16 @@
-export type WorldNode = {
+export type StoryStructureNode = {
   type: "story" | "narrative" | "scene";
   id: string;
   title?: string;
   line: number;
-  children: WorldNode[];
+  children: StoryStructureNode[];
 };
 
-export function parseWorldStructure(content: string): WorldNode[] {
+export function parseStoryStructure(content: string): StoryStructureNode[] {
   const lines = content.split(/\r?\n/);
-  const stories: WorldNode[] = [];
-  let currentStory: WorldNode | null = null;
-  let currentNarrative: WorldNode | null = null;
+  const stories: StoryStructureNode[] = [];
+  let currentStory: StoryStructureNode | null = null;
+  let currentNarrative: StoryStructureNode | null = null;
 
   lines.forEach((rawLine, index) => {
     const line = rawLine.trim();
@@ -18,10 +18,15 @@ export function parseWorldStructure(content: string): WorldNode[] {
 
     const storyMatch = /^::story:\s*(.+)$/i.exec(line);
     if (storyMatch) {
-      const node = createNode("story", storyMatch[1], index);
-      stories.push(node);
-      currentStory = node;
-      currentNarrative = null;
+      if (!currentStory) {
+        const node = createNode("story", storyMatch[1], index);
+        stories.push(node);
+        currentStory = node;
+        currentNarrative = null;
+      } else {
+        // Ignore additional ::story: directives; single-story invariant.
+        // TODO: surface a diagnostic externally if needed.
+      }
       return;
     }
 
@@ -55,7 +60,7 @@ export function parseWorldStructure(content: string): WorldNode[] {
   return stories;
 }
 
-function createNode(type: WorldNode["type"], raw: string, line: number): WorldNode {
+function createNode(type: StoryStructureNode["type"], raw: string, line: number): StoryStructureNode {
   const { id, title } = parseDirectiveValue(raw);
   return {
     type,
@@ -79,7 +84,7 @@ function parseDirectiveValue(raw: string): { id: string; title?: string } {
   };
 }
 
-function defaultLabel(type: WorldNode["type"]): string {
+function defaultLabel(type: StoryStructureNode["type"]): string {
   switch (type) {
     case "scene":
       return "Scene";

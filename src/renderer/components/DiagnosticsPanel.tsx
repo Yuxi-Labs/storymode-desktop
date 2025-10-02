@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar.js';
 import { useStore, selectParse } from '../store/store.js';
 
 export const DiagnosticsPanel: React.FC = () => {
@@ -7,8 +8,9 @@ export const DiagnosticsPanel: React.FC = () => {
   if (!diags.length) return <div style={{ padding: 8, fontSize: 12 }}>No diagnostics.</div>;
   // All navigation disabled per spec: diagnostics are read-only, non-interactive.
 
+  const ref = useAutoHideScrollbar<HTMLDivElement>();
   return (
-    <div style={{ padding: 0, fontSize: 12, overflow: 'auto', maxHeight: '100%' }}>
+    <div ref={ref} style={{ padding: 0, fontSize: 12, maxHeight: '100%' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>

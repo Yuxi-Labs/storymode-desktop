@@ -17,7 +17,7 @@ export interface FileState {
   sizeBytes: number | null;
   lastModifiedMs: number | null;
   lineCount?: number;
-  fileType?: "story" | "narrative" | "unknown";
+  fileType?: "story" | "narrative" | "scene" | "unknown";
   encoding?: string;
 }
 
@@ -57,6 +57,8 @@ export interface UIState {
   previewVisible: boolean;
   caretLine?: number;
   caretColumn?: number;
+  sidebarWidthPx: number; // user-adjustable
+  inspectorWidthPx: number; // user-adjustable
 }
 
 export interface NavigationState {
@@ -79,12 +81,12 @@ export interface StoreState {
   navigation: NavigationState;
   timings: TimingState;
   storyModel: {
-    story?: { id: string; title: string; narrativeIds: string[] };
+    story?: { internalId: string; externalId: string; title: string; narrativeIds: string[]; _managedId?: boolean };
     storyContent?: string;
-    narratives: Record<string, { id: string; title: string; sceneIds: string[]; order: number; content?: string }>;
-    scenes: Record<string, { id: string; title: string; narrativeId: string; content: string; order: number }>;
+    narratives: Record<string, { internalId: string; externalId: string; title: string; sceneIds: string[]; order: number; content?: string; _managedId?: boolean }>;
+    scenes: Record<string, { internalId: string; externalId: string; title: string; narrativeInternalId: string; content: string; order: number; _managedId?: boolean }>;
     activeSceneId?: string;
-    activeEntity?: { type: 'story' } | { type: 'narrative'; id: string } | { type: 'scene'; id: string };
+    activeEntity?: { type: 'story'; internalId: string } | { type: 'narrative'; internalId: string } | { type: 'scene'; internalId: string };
   };
   notifications: { items: Array<{ id: string; message: string; level: 'info' | 'warn' | 'error'; read?: boolean }>; unread: number };
   pushNotification: (n: { id?: string; message: string; level?: 'info' | 'warn' | 'error' }) => void;
@@ -94,6 +96,7 @@ export interface StoreState {
     content: string,
     sizeBytes?: number,
     lastModifiedMs?: number | null,
+    encoding?: string,
   ) => void;
   updateContent: (text: string) => void;
   requestParse: () => void;
@@ -123,6 +126,8 @@ export interface StoreState {
   toggleInspector: () => void;
   setStatusBarVisible: (visible: boolean) => void;
   toggleStatusBar: () => void;
+  setSidebarWidth: (px: number) => void;
+  setInspectorWidth: (px: number) => void;
   // Hierarchical story model actions
   newStory: (title?: string) => void;
   addNarrative: (title?: string) => string | undefined;
@@ -138,9 +143,6 @@ export interface StoreState {
   serializeStoryComposite: () => string;
   loadStoryComposite: (json: string, path?: string) => boolean;
 }
-
-const defaultEncoding = "utf-8";
-
 const themeStorageKey = {
   themeMode: "storymode.themeMode",
   themeId: "storymode.themeId",
@@ -155,6 +157,8 @@ const themeStorageKey = {
 const themePresetMap: Record<string, UIState["theme"]> = {
   "storymode-dark": "dark",
 };
+
+const defaultEncoding = "utf-8";
 
 const allowedPanels: UIState["activePanel"][] = ["metadata", "diagnostics"];
 const allowedSidebarViews: UIState["sidebarView"][] = ["world"];
@@ -191,13 +195,15 @@ function loadPersistedUI(): UIState {
       theme: resolved,
       themeMode: baseMode,
       themeId: "storymode-dark",
-  activePanel: undefined,
+      activePanel: undefined,
       parseDebounceMs: 200,
       sidebarView: "world",
       sidebarCollapsed: false,
-  inspectorVisible: false, // ensure default is false
+      inspectorVisible: false, // ensure default is false
       statusBarVisible: true,
       previewVisible: false,
+      sidebarWidthPx: 240,
+      inspectorWidthPx: 320,
     };
   }
 
@@ -237,6 +243,8 @@ function loadPersistedUI(): UIState {
     inspectorVisible,
     statusBarVisible,
     previewVisible,
+    sidebarWidthPx: parseInt(storage.getItem('storymode.sidebarWidthPx') || '240', 10) || 240,
+    inspectorWidthPx: parseInt(storage.getItem('storymode.inspectorWidthPx') || '320', 10) || 320,
   };
 }
 
@@ -248,7 +256,7 @@ const initialState: Pick<StoreState, "file" | "parse" | "compile" | "ui" | "navi
     isDirty: false,
     sizeBytes: null,
     lastModifiedMs: null,
-    encoding: defaultEncoding,
+    encoding: undefined,
   },
   parse: {
     version: 0,
@@ -284,42 +292,200 @@ function genId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createSeedStory(title = "Untitled") {
-  const storyId = genId("story");
-  const narrativeId = genId("narrative");
-  const sceneId = genId("scene");
-  return {
-    story: { id: storyId, title, narrativeIds: [narrativeId] },
-    narratives: {
-      [narrativeId]: { id: narrativeId, title: "Untitled", sceneIds: [sceneId], order: 0 },
-    },
-    scenes: {
-      [sceneId]: { id: sceneId, title: "Untitled Scene", narrativeId, content: "", order: 0 },
-    },
-    activeSceneId: sceneId,
-  } as StoreState['storyModel'];
+function slugify(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]+/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || 'untitled';
 }
 
+// External IDs are author-visible (underscored). Internal IDs are stable UUIDs.
+function toExternalId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]+/g, "")
+    .replace(/[\s_-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || 'untitled';
+}
+
+function uuid(): string {
+  // Simple UUID v4 generator (non-crypto acceptable for editor internal references)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function buildStoryDSL(story: { externalId: string; title: string; narrativeIds: string[] }, narratives: Record<string, any>): string {
+  // Emit canonical formatted story block with indentation and inline files array, plus closing ::end:
+  // Example:
+  // ::story: echoes_of_starlight
+  //   @title: Echoes of Starlight
+  //   files: [ intro.narrative, main.narrative ]
+  // ::end: {{ echoes_of_starlight }}
+  const indent = '  ';
+  const lines: string[] = [];
+  lines.push(`::story: ${story.externalId}`);
+  if (story.title) lines.push(`${indent}@title: ${story.title}`);
+  // Future additional metadata would be emitted here with same indent
+  if (story.narrativeIds.length) {
+    lines.push(`${indent}files:`);
+    for (const nid of story.narrativeIds) {
+      const n = narratives[nid];
+      if (!n) continue;
+      lines.push(`${indent}${indent}- ${n.externalId}.narrative`);
+    }
+  }
+  lines.push(`::end: {{ ${story.externalId} }}`);
+  return lines.join('\n');
+}
+
+function buildNarrativeDSL(narrative: { externalId: string; title: string; sceneIds: string[] }, scenes: Record<string, any>): string {
+  // Emit canonical formatted narrative with indented scenes and ::end: closers per example.
+  // Example:
+  // ::narrative: intro
+  //   @title: Intro
+  //
+  //   ::scene: arrival
+  //     @title: Arrival
+  //   ::end: {{ arrival }}
+  // ::end: {{ intro }}
+  const nIndent = '  ';
+  const sIndent = '    ';
+  const lines: string[] = [];
+  lines.push(`::narrative: ${narrative.externalId}`);
+  if (narrative.title) lines.push(`${nIndent}@title: ${narrative.title}`);
+  for (const sid of narrative.sceneIds) {
+    const sc = scenes[sid];
+    if (!sc) continue;
+    lines.push('', `${nIndent}::scene: ${sc.externalId}`);
+    if (sc.title) lines.push(`${sIndent}@title: ${sc.title}`);
+    // Scene content: indent each non-empty line by sIndent (two levels) if present
+    if (sc.content) {
+      const trimmed = sc.content.replace(/\s+$/,'');
+      if (trimmed.length) {
+  const contentLines = trimmed.split(/\r?\n/).map((l: string) => l.length ? `${sIndent}${l}` : l);
+        lines.push(...contentLines);
+      }
+    }
+    lines.push('', `${nIndent}::end: {{ ${sc.externalId} }}`);
+  }
+  lines.push('', `::end: {{ ${narrative.externalId} }}`);
+  return lines.join('\n');
+}
+
+function createSeedStory(title = "Untitled Story") {
+  // Rich scaffold: three narratives (intro, main, outro) with populated scene content.
+  // Content demonstrates characters, dialogue, media/effect cues, footnotes, and a goto.
+  const storyTitle = title || "Untitled Story";
+  const storyExternalId = toExternalId(storyTitle);
+  const storyInternalId = uuid();
+
+  type TmpNarr = { key: string; title: string; scenes: Array<{ title: string; body: string }> };
+  const template: TmpNarr[] = [
+    {
+      key: 'intro',
+      title: 'Intro',
+      scenes: [
+        { title: 'Opening Beat', body: `[[ Aria ]]\n"We made it."\n!!: ambient: soft_wind\n**: fade_in: 2s\n[[ Dax ]]\n"You sure this is the place?"\n### Footnote: The ruined gate has ancient glyphs.` },
+        { title: 'Inciting Event', body: `[[ Aria ]]\n"The signal originated here."\n~~: sparks: gate_core\n[[ Dax ]]\n"Gate's waking up— back!"\n::goto: Rising Action` },
+      ],
+    },
+    {
+      key: 'main',
+      title: 'Main',
+      scenes: [
+        { title: 'Rising Action', body: `[[ Aria ]]\n"Systems cycling."\n<>: holo: schematic_gate\n[[ Dax ]]\n"Power surge climbing."` },
+        { title: 'Reversal', body: `[[ Aria ]]\n"It's rewriting coordinates."\n[[ Dax ]]\n"Then it's not a gate— it's a recorder."` },
+        { title: 'Complication', body: `[[ Aria ]]\n"Transmission fragment inbound."\n**: flash: white\n[[ Dax ]]\n"That... sounded like my voice."` },
+      ],
+    },
+    {
+      key: 'outro',
+      title: 'Outro',
+      scenes: [
+        { title: 'Climax', body: `[[ Aria ]]\n"Stabilize the field!"\n~~: distortion: temporal_field\n[[ Dax ]]\n"Holding— can't guarantee duration."` },
+        { title: 'Resolution', body: `[[ Aria ]]\n"Log everything. We'll need a council."\n[[ Dax ]]\n"And a stronger battery."\n### Footnote: End of sample narrative.` },
+      ],
+    },
+  ];
+
+  const narratives: Record<string, any> = {};
+  const scenes: Record<string, any> = {};
+  const narrativeIds: string[] = [];
+
+  template.forEach((tpl, nIdx) => {
+    const nInternal = uuid();
+    const nExternal = toExternalId(tpl.title || `Narrative_${nIdx+1}`);
+    const sceneIds: string[] = [];
+    tpl.scenes.forEach((sceneSpec, sIdx) => {
+      const scInternal = uuid();
+      const scExternal = toExternalId(sceneSpec.title || `Scene_${sIdx+1}`);
+      sceneIds.push(scInternal);
+      scenes[scInternal] = {
+        internalId: scInternal,
+        externalId: scExternal,
+        title: sceneSpec.title,
+        narrativeInternalId: nInternal,
+        content: sceneSpec.body,
+        order: sIdx,
+        _managedId: true,
+      };
+    });
+    narratives[nInternal] = {
+      internalId: nInternal,
+      externalId: nExternal,
+      title: tpl.title,
+      sceneIds,
+      order: nIdx,
+      content: '',
+      _managedId: true,
+    };
+    narrativeIds.push(nInternal);
+  });
+
+  const story = { internalId: storyInternalId, externalId: storyExternalId, title: storyTitle, narrativeIds, _managedId: true };
+  const storyContent = buildStoryDSL(story, narratives);
+  // Precompute each narrative's DSL with embedded scene content.
+  for (const nid of narrativeIds) {
+    narratives[nid].content = buildNarrativeDSL(narratives[nid], scenes);
+  }
+  const firstSceneId = narratives[narrativeIds[0]].sceneIds[0];
+  // Requirement change: initial selection should be the story (not a scene).
+  return { story, storyContent, narratives, scenes, activeSceneId: firstSceneId, activeEntity: { type: 'story', internalId: story.internalId } } as StoreState['storyModel'];
+}
+
+function ensureUniqueExternalId(existing: Set<string>, base: string): string {
+  if (!existing.has(base)) return base;
+  let i = 2;
+  while (existing.has(`${base}_${i}`)) i++;
+  return `${base}_${i}`;
+}
 function buildCompositePayload(sm: StoreState['storyModel'], encoding: string | undefined) {
   if (!sm.story) return { version:1, empty: true };
   const story = sm.story;
   return {
     version: 1,
     encoding: encoding || defaultEncoding,
-    activeSceneId: sm.activeSceneId,
+    activeSceneExternalId: sm.activeSceneId ? sm.scenes[sm.activeSceneId]?.externalId : undefined,
     story: {
-      id: story.id,
+      id: story.externalId,
       title: story.title,
-      narratives: story.narrativeIds.map(nid => {
-        const n = sm.narratives[nid];
-        return !n ? null : {
-          id: n.id,
-            title: n.title,
-            order: n.order,
-            scenes: n.sceneIds.map(sid => {
-              const sc = sm.scenes[sid];
-              return !sc ? null : { id: sc.id, title: sc.title, order: sc.order, content: sc.content };
-            }).filter(Boolean),
+      narratives: story.narrativeIds.map(nInternalId => {
+        const n = sm.narratives[nInternalId];
+        if (!n) return null;
+        return {
+          id: n.externalId,
+          title: n.title,
+          order: n.order,
+          scenes: n.sceneIds.map(sInternalId => {
+            const sc = sm.scenes[sInternalId];
+            return !sc ? null : { id: sc.externalId, title: sc.title, order: sc.order, content: sc.content };
+          }).filter(Boolean),
         };
       }).filter(Boolean),
     },
@@ -335,13 +501,13 @@ function flushActiveEntity(get: () => StoreState, set: (fn: any) => void, conten
   if (active.type === 'story') {
     set(() => ({ storyModel: { ...sm, storyContent: content } }));
   } else if (active.type === 'narrative') {
-    const n = sm.narratives[active.id];
+    const n = sm.narratives[active.internalId];
     if (!n) return;
-    set(() => ({ storyModel: { ...sm, narratives: { ...sm.narratives, [active.id]: { ...n, content } } } }));
+    set(() => ({ storyModel: { ...sm, narratives: { ...sm.narratives, [active.internalId]: { ...n, content } } } }));
   } else if (active.type === 'scene') {
-    const sc = sm.scenes[active.id];
+    const sc = sm.scenes[active.internalId];
     if (!sc) return;
-    set(() => ({ storyModel: { ...sm, scenes: { ...sm.scenes, [active.id]: { ...sc, content } } } }));
+    set(() => ({ storyModel: { ...sm, scenes: { ...sm.scenes, [active.internalId]: { ...sc, content } } } }));
   }
 }
 
@@ -359,25 +525,30 @@ export const useStore = create<StoreState>((set, get) => ({
       const parsed = JSON.parse(json);
       if (!parsed || typeof parsed !== 'object') return false;
       if (parsed.version !== 1 || !parsed.story) return false;
-      const story = parsed.story;
-      if (!Array.isArray(story.narratives)) return false;
+      const storyJson = parsed.story;
+      if (!Array.isArray(storyJson.narratives)) return false;
       const narratives: StoreState['storyModel']['narratives'] = {};
       const scenes: StoreState['storyModel']['scenes'] = {};
-      const narrativeIds: string[] = [];
-      story.narratives.forEach((n: any, nIdx: number) => {
+      const narrativeInternalIds: string[] = [];
+      storyJson.narratives.forEach((n: any, nIdx: number) => {
         if (!n || !n.id || !Array.isArray(n.scenes)) return;
-        narrativeIds.push(n.id);
-        narratives[n.id] = { id: n.id, title: n.title || `Narrative ${nIdx+1}`, sceneIds: [], order: typeof n.order === 'number' ? n.order : nIdx };
+        const nInternal = uuid();
+        narrativeInternalIds.push(nInternal);
+        narratives[nInternal] = { internalId: nInternal, externalId: toExternalId(n.id), title: n.title || `Narrative ${nIdx+1}`, sceneIds: [], order: typeof n.order === 'number' ? n.order : nIdx };
         n.scenes.forEach((sc: any, sIdx: number) => {
           if (!sc || !sc.id) return;
-            narratives[n.id].sceneIds.push(sc.id);
-            scenes[sc.id] = { id: sc.id, title: sc.title || `Scene ${sIdx+1}`, narrativeId: n.id, content: sc.content || '', order: typeof sc.order === 'number' ? sc.order : sIdx };
+          const scInternal = uuid();
+          narratives[nInternal].sceneIds.push(scInternal);
+          scenes[scInternal] = { internalId: scInternal, externalId: toExternalId(sc.id), title: sc.title || `Scene ${sIdx+1}`, narrativeInternalId: nInternal, content: sc.content || '', order: typeof sc.order === 'number' ? sc.order : sIdx };
         });
       });
-      const activeSceneId: string | undefined = parsed.activeSceneId && scenes[parsed.activeSceneId] ? parsed.activeSceneId : (narrativeIds.length ? narratives[narrativeIds[0]].sceneIds[0] : undefined);
+      const storyInternalId = uuid();
+      const story = { internalId: storyInternalId, externalId: toExternalId(storyJson.id || 'story'), title: storyJson.title || 'Untitled', narrativeIds: narrativeInternalIds };
+      const firstSceneInternal = narrativeInternalIds.length ? narratives[narrativeInternalIds[0]].sceneIds[0] : undefined;
+      const activeSceneId: string | undefined = firstSceneInternal;
       const content = activeSceneId ? scenes[activeSceneId].content : '';
       set((state) => ({
-  storyModel: { story: { id: story.id || 'story-unknown', title: story.title || 'Untitled', narrativeIds }, narratives, scenes, activeSceneId },
+        storyModel: { story, narratives, scenes, activeSceneId, storyContent: buildStoryDSL(story, narratives), activeEntity: { type: 'story', internalId: storyInternalId } },
         file: { ...state.file, path: path ?? state.file.path, content, lastDiskContent: content, isDirty: false, encoding: parsed.encoding || state.file.encoding || 'utf-8' },
         parse: { ...state.parse, status: 'idle', ast: null, diagnostics: [], tokens: [], version: state.parse.version + 1 },
         compile: { ...state.compile, status: 'idle', ir: null, diagnostics: [], version: state.compile.version + 1 },
@@ -393,7 +564,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return { notifications: { items: [item, ...state.notifications.items].slice(0, 50), unread: state.notifications.unread + 1 } };
   }),
   markAllRead: () => set((state) => ({ notifications: { items: state.notifications.items.map(i => ({ ...i, read: true })), unread: 0 } })),
-  openFile: (path, content, sizeBytes, lastModifiedMs) => {
+  openFile: (path, content, sizeBytes, lastModifiedMs, encoding) => {
     set((state) => ({
       file: {
         path: path ?? null,
@@ -402,7 +573,8 @@ export const useStore = create<StoreState>((set, get) => ({
         isDirty: false,
         sizeBytes: sizeBytes ?? content.length,
         lastModifiedMs: lastModifiedMs ?? null,
-        encoding: defaultEncoding,
+        // Use provided encoding; do not silently coerce unknown -> utf-8.
+        encoding: encoding || undefined,
       },
       parse: {
         ...state.parse,
@@ -567,7 +739,7 @@ export const useStore = create<StoreState>((set, get) => ({
         isDirty: false,
         sizeBytes: 0,
         lastModifiedMs: null,
-        encoding: defaultEncoding,
+        encoding: undefined,
       },
       storyModel: createSeedStory(),
     })),
@@ -580,7 +752,7 @@ export const useStore = create<StoreState>((set, get) => ({
         isDirty: false,
         sizeBytes: null,
         lastModifiedMs: null,
-        encoding: defaultEncoding,
+        encoding: undefined,
       },
       storyModel: { story: undefined, narratives: {}, scenes: {}, activeSceneId: undefined },
     })),
@@ -603,15 +775,16 @@ export const useStore = create<StoreState>((set, get) => ({
       const content = state.file.content;
       const lines = content ? content.split(/\r?\n/).length : 0;
       const path = state.file.path;
-      let fileType: "story" | "narrative" | "unknown" = "unknown";
+      let fileType: "story" | "narrative" | "scene" | "unknown" = "unknown";
       if (path?.endsWith(".story")) fileType = "story";
       else if (path?.endsWith(".narrative")) fileType = "narrative";
+      else if (path?.endsWith('.scene')) fileType = 'scene';
       return {
         file: {
           ...state.file,
           lineCount: lines,
           fileType,
-          encoding: state.file.encoding ?? defaultEncoding,
+          encoding: state.file.encoding,
         },
       };
     }),
@@ -659,77 +832,70 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       ui: { ...state.ui, statusBarVisible: !state.ui.statusBarVisible },
     })),
+  setSidebarWidth: (px: number) => set((state) => ({ ui: { ...state.ui, sidebarWidthPx: Math.min(600, Math.max(140, Math.round(px))) } })),
+  setInspectorWidth: (px: number) => set((state) => ({ ui: { ...state.ui, inspectorWidthPx: Math.min(800, Math.max(220, Math.round(px))) } })),
   // Hierarchical model actions
   newStory: (title) => {
-    const seed = createSeedStory(title || 'Untitled');
-    // Open directly to the first (active) scene per spec: editor should show Scene 1.
+    const seed = createSeedStory(title || 'Untitled Story');
     const story = seed.story!;
-    const narrativeId = story.narrativeIds[0];
-    const narrative = seed.narratives[narrativeId];
-    const sceneId = seed.activeSceneId!;
-    const scene = seed.scenes[sceneId];
-    const scenePath = `${story.title || 'Untitled'}/${narrative.title || 'Untitled'}/${scene.title}.scene`;
     set((state) => ({
-      storyModel: { ...seed, activeEntity: { type: 'scene', id: sceneId } },
-      file: { ...state.file, path: scenePath, content: scene.content, isDirty: false },
+      storyModel: seed,
+      file: { ...state.file, path: `${story.externalId}.story`, content: seed.storyContent || '', isDirty: false, encoding: state.file.encoding || undefined },
+      parse: { ...state.parse, status: 'idle', ast: null, diagnostics: [], tokens: [] },
     }));
   },
   addNarrative: (title) => {
     const state = get();
     if (!state.storyModel.story) return undefined;
-    const id = genId("narrative");
-    const order = state.storyModel.story!.narrativeIds.length;
-    set(() => ({
-      storyModel: {
-        ...state.storyModel,
-        story: { ...state.storyModel.story!, narrativeIds: [...state.storyModel.story!.narrativeIds, id] },
-        narratives: { ...state.storyModel.narratives, [id]: { id, title: title || 'Untitled', sceneIds: [], order, content: '' } },
-      },
-    }));
-    return id;
+    const order = state.storyModel.story.narrativeIds.length;
+    const narrativeTitle = title || `Untitled Narrative ${order + 1}`;
+    const baseExternal = toExternalId(narrativeTitle);
+    const existing = new Set(Object.values(state.storyModel.narratives).map(n => n.externalId));
+    const externalId = ensureUniqueExternalId(existing, baseExternal);
+    const internalId = uuid();
+    // Create default first scene
+    const sceneTitle = 'Untitled Scene 1';
+    const sceneExternal = ensureUniqueExternalId(new Set(), toExternalId(sceneTitle));
+    const sceneInternal = uuid();
+    const newNarrative = { internalId, externalId, title: narrativeTitle, sceneIds: [sceneInternal], order, content: '', _managedId: true };
+    const narratives = { ...state.storyModel.narratives, [internalId]: newNarrative };
+    const scenes = { ...state.storyModel.scenes, [sceneInternal]: { internalId: sceneInternal, externalId: sceneExternal, title: sceneTitle, narrativeInternalId: internalId, content: '', order: 0, _managedId: true } };
+    const story = { ...state.storyModel.story, narrativeIds: [...state.storyModel.story.narrativeIds, internalId] };
+    const storyContent = buildStoryDSL(story!, narratives);
+    set(() => ({ storyModel: { ...state.storyModel, narratives, scenes, story, storyContent, activeEntity: { type: 'narrative', internalId } } }));
+    return internalId;
   },
   addScene: (narrativeId, title) => {
     const state = get();
     const narrative = state.storyModel.narratives[narrativeId];
     if (!narrative) return undefined;
-    const id = genId("scene");
-    set(() => ({
-      storyModel: {
-        ...state.storyModel,
-        narratives: {
-          ...state.storyModel.narratives,
-          [narrativeId]: {
-            ...narrative,
-            sceneIds: [...narrative.sceneIds, id],
-          },
-        },
-        scenes: {
-          ...state.storyModel.scenes,
-          [id]: { id, title: title || `Scene ${narrative.sceneIds.length + 1}`, narrativeId, content: "", order: narrative.sceneIds.length },
-        },
-      },
-    }));
-    return id;
+    const index = narrative.sceneIds.length;
+    const sceneTitle = title || `Untitled Scene ${index + 1}`;
+    const baseExternal = toExternalId(sceneTitle);
+    const existing = new Set(narrative.sceneIds.map(sid => state.storyModel.scenes[sid]?.externalId).filter(Boolean) as string[]);
+    const externalId = ensureUniqueExternalId(existing, baseExternal);
+    const internalId = uuid();
+    set(() => ({ storyModel: { ...state.storyModel, narratives: { ...state.storyModel.narratives, [narrativeId]: { ...narrative, sceneIds: [...narrative.sceneIds, internalId] } }, scenes: { ...state.storyModel.scenes, [internalId]: { internalId, externalId, title: sceneTitle, narrativeInternalId: narrativeId, content: '', order: index, _managedId: true } } } }));
+    return internalId;
   },
   setActiveScene: (sceneId) => {
     const state = get();
     const sm = state.storyModel;
     if (!sm.scenes[sceneId]) return;
     flushActiveEntity(get, set, state.file.content);
-    const newContent = sm.scenes[sceneId].content;
-    const scene = sm.scenes[sceneId];
-    const narrative = sm.narratives[scene.narrativeId];
-    const storyTitle = sm.story?.title || 'Untitled';
-    const narrativeTitle = narrative?.title || 'Untitled';
-    const syntheticPath = `${storyTitle}/${narrativeTitle}/${scene.title}.scene`;
-    set(() => ({ storyModel: { ...sm, activeSceneId: sceneId, activeEntity: { type: 'scene', id: sceneId } }, file: { ...state.file, path: syntheticPath, content: newContent, isDirty: false } }));
+    const sc = sm.scenes[sceneId];
+    const narrative = sm.narratives[sc.narrativeInternalId];
+    const story = sm.story;
+    const newContent = sc.content;
+    const syntheticPath = `${story?.externalId || 'story'}/${narrative?.externalId || 'narrative'}/${sc.externalId}.scene`;
+    set(() => ({ storyModel: { ...sm, activeSceneId: sceneId, activeEntity: { type: 'scene', internalId: sceneId } }, file: { ...state.file, path: syntheticPath, content: newContent, isDirty: false, fileType: 'scene' as any } }));
   },
   setActiveStory: () => {
     const state = get();
     const sm = state.storyModel;
     if (!sm.story) return;
     flushActiveEntity(get, set, state.file.content);
-    set(() => ({ storyModel: { ...sm, activeEntity: { type: 'story' } }, file: { ...state.file, path: `${sm.story!.title || 'Untitled'}.story`, content: sm.storyContent || '', isDirty: false } }));
+    set(() => ({ storyModel: { ...sm, activeEntity: { type: 'story', internalId: sm.story!.internalId } }, file: { ...state.file, path: `${sm.story!.externalId}.story`, content: sm.storyContent || '', isDirty: false, fileType: 'story' as any } }));
   },
   setActiveNarrative: (id: string) => {
     const state = get();
@@ -737,7 +903,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const n = sm.narratives[id];
     if (!n) return;
     flushActiveEntity(get, set, state.file.content);
-    set(() => ({ storyModel: { ...sm, activeEntity: { type: 'narrative', id } }, file: { ...state.file, path: `${n.title || 'Untitled'}.narrative`, content: n.content || '', isDirty: false } }));
+    const narrativeDsl = buildNarrativeDSL(n, sm.scenes);
+    set(() => ({ storyModel: { ...sm, activeEntity: { type: 'narrative', internalId: id } }, file: { ...state.file, path: `${n.externalId}.narrative`, content: narrativeDsl, isDirty: false, fileType: 'narrative' as any } }));
   },
   deleteNarrative: (id: string) => {
     const state = get();
@@ -747,12 +914,26 @@ export const useStore = create<StoreState>((set, get) => ({
     const newNarratives = { ...sm.narratives };
     delete newNarratives[id];
     const newScenes = { ...sm.scenes };
-    Object.values(sm.scenes).forEach(sc => { if (sc.narrativeId === id) delete newScenes[sc.id]; });
+    Object.values(sm.scenes).forEach(sc => { if (sc.narrativeInternalId === id) delete newScenes[sc.internalId]; });
     let activeEntity = sm.activeEntity;
     let fileUpdate: Partial<FileState> = {};
-    if (activeEntity && activeEntity.type === 'narrative' && activeEntity.id === id) {
-      activeEntity = { type: 'story' };
-      fileUpdate = { path: `${sm.story.title || 'Untitled'}.story`, content: sm.storyContent || '', isDirty: false } as any;
+    if (activeEntity && activeEntity.type === 'narrative' && activeEntity.internalId === id) {
+      // Choose next narrative if any, else story
+      if (remainingIds.length) {
+        const nextNarrId = remainingIds[0];
+        activeEntity = { type: 'narrative', internalId: nextNarrId };
+        const nextNarr = newNarratives[nextNarrId];
+        const narrativeDsl = buildNarrativeDSL(nextNarr, newScenes);
+        fileUpdate = { path: `${nextNarr.externalId}.narrative`, content: narrativeDsl, isDirty: false } as any;
+      } else {
+        activeEntity = sm.story ? { type: 'story', internalId: sm.story.internalId } : undefined;
+        fileUpdate = sm.story ? { path: `${sm.story.externalId}.story`, content: sm.storyContent || '', isDirty: false } as any : { path: null, content: '', isDirty: false } as any;
+      }
+    }
+    // If no narratives remain, clear story model entirely
+    if (!remainingIds.length) {
+      set((s) => ({ storyModel: { story: undefined, narratives: {}, scenes: {}, activeSceneId: undefined, activeEntity: undefined }, file: { ...s.file, ...fileUpdate } }));
+      return;
     }
     set((s) => ({ storyModel: { ...sm, story: { ...sm.story!, narrativeIds: remainingIds }, narratives: newNarratives, scenes: newScenes, activeEntity }, file: { ...s.file, ...fileUpdate } }));
   },
@@ -760,48 +941,58 @@ export const useStore = create<StoreState>((set, get) => ({
     const state = get();
     const sm = state.storyModel;
     if (!sm.story) return;
-    const story = { ...sm.story, title };
+    const externalId = sm.story._managedId ? toExternalId(title || 'Untitled') : sm.story.externalId;
+    const story = { ...sm.story, title, externalId };
+    const storyContent = buildStoryDSL(story, sm.narratives);
     let file = state.file;
     if (sm.activeEntity?.type === 'story') {
-      file = { ...file, path: `${title || 'Untitled'}.story` };
+      file = { ...file, path: `${story.externalId}.story`, content: storyContent };
     } else if (sm.activeEntity?.type === 'scene') {
-      const scene = sm.scenes[sm.activeEntity.id];
-      const narrative = sm.narratives[scene.narrativeId];
-      file = { ...file, path: `${title || 'Untitled'}/${narrative.title || 'Untitled'}/${scene.title}.scene` };
+      const scene = sm.scenes[sm.activeEntity.internalId];
+      const narrative = sm.narratives[scene.narrativeInternalId];
+      file = { ...file, path: `${story.externalId}/${narrative.externalId}/${scene.externalId}.scene` };
     } else if (sm.activeEntity?.type === 'narrative') {
-      const narrative = sm.narratives[sm.activeEntity.id];
-      file = { ...file, path: `${narrative.title || 'Untitled'}.narrative` };
+      const narrative = sm.narratives[sm.activeEntity.internalId];
+      file = { ...file, path: `${narrative.externalId}.narrative` };
     }
-    set(() => ({ storyModel: { ...sm, story }, file }));
+    set(() => ({ storyModel: { ...sm, story, storyContent }, file }));
   },
   renameNarrative: (id: string, title: string) => {
     const state = get();
     const sm = state.storyModel;
     const n = sm.narratives[id];
     if (!n) return;
-    const narratives = { ...sm.narratives, [id]: { ...n, title } };
+    const externalId = n._managedId ? toExternalId(title || 'Untitled') : n.externalId;
+    const updatedNarrative = { ...n, title, externalId };
+    const narratives = { ...sm.narratives, [id]: updatedNarrative };
+    const story = sm.story ? { ...sm.story } : undefined;
+    const storyContent = story ? buildStoryDSL(story, narratives) : sm.storyContent;
     let file = state.file;
-    if (sm.activeEntity?.type === 'narrative' && sm.activeEntity.id === id) {
-      file = { ...file, path: `${title || 'Untitled'}.narrative` };
+    if (sm.activeEntity?.type === 'narrative' && sm.activeEntity.internalId === id) {
+      file = { ...file, path: `${updatedNarrative.externalId}.narrative` };
     } else if (sm.activeEntity?.type === 'scene') {
-      const sc = sm.scenes[sm.activeEntity.id];
-      const storyTitle = sm.story?.title || 'Untitled';
-      if (sc.narrativeId === id) file = { ...file, path: `${storyTitle}/${title || 'Untitled'}/${sc.title}.scene` };
+      const sc = sm.scenes[sm.activeEntity.internalId];
+      if (sc && sc.narrativeInternalId === id && story) {
+        file = { ...file, path: `${story.externalId}/${updatedNarrative.externalId}/${sc.externalId}.scene` };
+      }
     }
-    set(() => ({ storyModel: { ...sm, narratives }, file }));
+    set(() => ({ storyModel: { ...sm, narratives, story, storyContent }, file }));
   },
   renameScene: (id: string, title: string) => {
     const state = get();
     const sm = state.storyModel;
     const sc = sm.scenes[id];
     if (!sc) return;
-    const newScene = { ...sc, title };
+    const externalId = sc._managedId ? toExternalId(title || 'Untitled') : sc.externalId;
+    const newScene = { ...sc, title, externalId };
     const scenes = { ...sm.scenes, [id]: newScene };
     let file = state.file;
-    if (sm.activeEntity?.type === 'scene' && sm.activeEntity.id === id) {
-      const storyTitle = sm.story?.title || 'Untitled';
-      const narrative = sm.narratives[sc.narrativeId];
-      file = { ...file, path: `${storyTitle}/${narrative.title || 'Untitled'}/${title}.scene` };
+    if (sm.activeEntity?.type === 'scene' && sm.activeEntity.internalId === id) {
+      const story = sm.story;
+      const narrative = sm.narratives[sc.narrativeInternalId];
+      if (story && narrative) {
+        file = { ...file, path: `${story.externalId}/${narrative.externalId}/${newScene.externalId}.scene` };
+      }
     }
     set(() => ({ storyModel: { ...sm, scenes }, file }));
   },
@@ -810,26 +1001,28 @@ export const useStore = create<StoreState>((set, get) => ({
     const sm = state.storyModel;
     const sc = sm.scenes[id];
     if (!sc) return;
-    const narrative = sm.narratives[sc.narrativeId];
+    const narrative = sm.narratives[sc.narrativeInternalId];
     if (!narrative) return;
     const newScenes = { ...sm.scenes };
     delete newScenes[id];
     const newNarrative = { ...narrative, sceneIds: narrative.sceneIds.filter(sid => sid !== id) };
-    const narratives = { ...sm.narratives, [narrative.id]: newNarrative };
+    const narratives = { ...sm.narratives, [narrative.internalId]: newNarrative };
     let activeEntity = sm.activeEntity;
     let file = state.file;
-    if (activeEntity?.type === 'scene' && activeEntity.id === id) {
+    if (activeEntity?.type === 'scene' && activeEntity.internalId === id) {
       // fallback to narrative or story
       if (newNarrative.sceneIds.length > 0) {
         const first = newNarrative.sceneIds[0];
         const nextScene = newScenes[first];
         if (nextScene) {
-          activeEntity = { type: 'scene', id: first };
-          file = { ...file, path: `${sm.story?.title || 'Untitled'}/${narrative.title || 'Untitled'}/${nextScene.title}.scene`, content: nextScene.content, isDirty: false };
+          activeEntity = { type: 'scene', internalId: first };
+          const story = sm.story;
+          file = { ...file, path: `${story?.externalId || 'story'}/${narrative.externalId}/${nextScene.externalId}.scene`, content: nextScene.content, isDirty: false };
         }
       } else {
-        activeEntity = { type: 'narrative', id: narrative.id };
-        file = { ...file, path: `${newNarrative.title || 'Untitled'}.narrative`, content: newNarrative.content || '', isDirty: false };
+        // No scenes left: remove narrative entirely (cascading) using deleteNarrative
+        get().deleteNarrative(narrative.internalId);
+        return;
       }
     }
     set(() => ({ storyModel: { ...sm, narratives, scenes: newScenes, activeEntity }, file }));
@@ -877,6 +1070,8 @@ if (typeof window !== "undefined") {
           themeStorageKey.previewVisible,
           String(ui.previewVisible),
         );
+        localStorage.setItem('storymode.sidebarWidthPx', String(ui.sidebarWidthPx));
+        localStorage.setItem('storymode.inspectorWidthPx', String(ui.inspectorWidthPx));
       } catch {
         // ignore quota errors
       }

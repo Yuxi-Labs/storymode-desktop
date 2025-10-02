@@ -14,6 +14,9 @@ export const FileList: React.FC = () => {
     renameNarrative,
     renameScene,
     deleteScene,
+    addNarrative,
+    addScene,
+    deleteNarrative,
   } = useStore(s => ({
     storyModel: s.storyModel,
     setActiveStory: s.setActiveStory,
@@ -23,6 +26,9 @@ export const FileList: React.FC = () => {
     renameNarrative: s.renameNarrative,
     renameScene: s.renameScene,
     deleteScene: s.deleteScene,
+    addNarrative: s.addNarrative,
+    addScene: s.addScene,
+    deleteNarrative: s.deleteNarrative,
   }));
 
   const [storyExpanded, setStoryExpanded] = useState(true);
@@ -112,13 +118,22 @@ export const FileList: React.FC = () => {
       const detail: any = (e as CustomEvent).detail;
       if (detail?.id) deleteScene(detail.id);
     };
+    const handleAddNarrative = () => { addNarrative(); };
+    const handleAddScene = (e: Event) => { const d: any = (e as CustomEvent).detail; if (d?.narrativeId) addScene(d.narrativeId); };
+    const handleDeleteNarrative = (e: Event) => { const d: any = (e as CustomEvent).detail; if (d?.narrativeId) deleteNarrative(d.narrativeId); };
     window.addEventListener('explorer:renameResult', handleRename as any);
     window.addEventListener('explorer:deleteScene', handleDeleteScene as any);
+    window.addEventListener('explorer:addNarrative', handleAddNarrative as any);
+    window.addEventListener('explorer:addScene', handleAddScene as any);
+    window.addEventListener('explorer:deleteNarrative', handleDeleteNarrative as any);
     return () => {
       window.removeEventListener('explorer:renameResult', handleRename as any);
       window.removeEventListener('explorer:deleteScene', handleDeleteScene as any);
+      window.removeEventListener('explorer:addNarrative', handleAddNarrative as any);
+      window.removeEventListener('explorer:addScene', handleAddScene as any);
+      window.removeEventListener('explorer:deleteNarrative', handleDeleteNarrative as any);
     };
-  }, [renameStory, renameNarrative, renameScene, deleteScene]);
+  }, [renameStory, renameNarrative, renameScene, deleteScene, addNarrative, addScene, deleteNarrative]);
 
   // (Removed old in-React context menu helpers; native Electron menu handles rename/delete.)
 
@@ -143,15 +158,15 @@ export const FileList: React.FC = () => {
           let isActive = false;
           if (activeEntity) {
             if (item.type === 'story' && activeEntity.type === 'story') isActive = true;
-            else if (item.type === 'narrative' && activeEntity.type === 'narrative' && activeEntity.id === item.narrativeId) isActive = true;
-            else if (item.type === 'scene' && activeEntity.type === 'scene' && activeEntity.id === item.sceneId) isActive = true;
+            else if (item.type === 'narrative' && activeEntity.type === 'narrative' && activeEntity.internalId === item.narrativeId) isActive = true;
+            else if (item.type === 'scene' && activeEntity.type === 'scene' && activeEntity.internalId === item.sceneId) isActive = true;
           }
           const level = item.type === 'story' ? 1 : item.type === 'narrative' ? 2 : 3;
-          const storyFileNameLabel = (storyModel.story?.title || 'Story') + '.story';
+          const storyFileNameLabel = (storyModel.story?.title || 'Story');
           const label = item.type === 'story'
             ? storyFileNameLabel
             : item.type === 'narrative'
-              ? `${storyModel.narratives[item.narrativeId!]?.title}.narrative`
+              ? `${storyModel.narratives[item.narrativeId!]?.title}`
               : storyModel.scenes[item.sceneId!]?.title;
           const expanded = item.expandable ? item.expanded : undefined;
           const rowClass = [ 'vsc-item', item.type, isActive ? 'selected' : '', isFocused ? 'focused' : '', item.expandable && expanded ? 'expanded' : '' ].filter(Boolean).join(' ');
@@ -168,14 +183,56 @@ export const FileList: React.FC = () => {
               onKeyDown={(e) => handleKeyNav(e, item)}
               onClick={(e) => {
                 setFocusId(item.id);
-                if (item.type === 'story') setActiveStory();
-                else if (item.type === 'narrative' && item.narrativeId) setActiveNarrative(item.narrativeId);
-                else if (item.type === 'scene' && item.sceneId) setActiveScene(item.sceneId);
+                if (item.type === 'story') {
+                  setActiveStory();
+                  // Optionally expand all narratives when selecting story
+                  const exp: Record<string, boolean> = {};
+                  if (story?.narrativeIds) story.narrativeIds.forEach(id => { exp[id] = true; });
+                  setNarrativeExpanded(exp);
+                  setStoryExpanded(true);
+                } else if (item.type === 'narrative' && item.narrativeId) {
+                  // Collapse all other narratives
+                  const exp: Record<string, boolean> = {};
+                  exp[item.narrativeId] = true;
+                  setNarrativeExpanded(exp);
+                  setActiveNarrative(item.narrativeId);
+                } else if (item.type === 'scene' && item.sceneId) {
+                  // Expand only the parent narrative containing this scene
+                  if (item.parent?.startsWith('narrative:')) {
+                    const nid = item.parent.split(':')[1];
+                    const exp: Record<string, boolean> = {}; exp[nid] = true; setNarrativeExpanded(exp);
+                  }
+                  setActiveScene(item.sceneId);
+                }
               }}
               onContextMenu={(e) => { e.preventDefault(); setFocusId(item.id); const title = item.type==='story'? (storyModel.story?.title||'Story'): item.type==='narrative'? storyModel.narratives[item.narrativeId!]?.title : storyModel.scenes[item.sceneId!]?.title; window.storymode?.explorerContextMenu({ id: item.id, type: item.type, narrativeId: item.narrativeId, sceneId: item.sceneId, title }); }}
             >
               <div className="row" style={{ paddingLeft: (level -1) * 8, display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
-                <span className="label" style={{ flex:1 }} title={label}>{label}</span>
+                <span className="label" style={{ flex:1, display:'inline-flex', alignItems:'center', gap:6 }} title={label}>
+                  <span aria-hidden="true" style={{ display:'inline-flex' }}>
+                    {item.type === 'story' && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" stroke="hsl(260,70%,60%)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 4h9l7 7v9H4V4Z" />
+                        <path d="M13 4v7h7" />
+                      </svg>
+                    )}
+                    {item.type === 'narrative' && (
+                      /* Swapped icon: previously narrative icon replaced with former scene style */
+                      <svg width="14" height="14" viewBox="0 0 24 24" stroke="hsl(200,70%,55%)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="4" y="5" width="16" height="14" rx="2" />
+                        <path d="M4 10h16" />
+                      </svg>
+                    )}
+                    {item.type === 'scene' && (
+                      /* Swapped icon: scene now uses the dual-panel motif */
+                      <svg width="14" height="14" viewBox="0 0 24 24" stroke="hsl(25,75%,55%)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="7" height="16" rx="1" />
+                        <rect x="14" y="4" width="7" height="10" rx="1" />
+                      </svg>
+                    )}
+                  </span>
+                  <span>{label}</span>
+                </span>
                 {item.expandable ? (
                   <span
                     className="chevron"

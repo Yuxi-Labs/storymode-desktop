@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar.js';
 import { useStore, selectParse } from '../store/store.js';
 
 export const ASTPanel: React.FC = () => {
@@ -6,8 +7,9 @@ export const ASTPanel: React.FC = () => {
   if (parse.status === 'idle') return <div style={{ padding: 8 }}>No parse yet.</div>;
   if (parse.status === 'parsing') return <div style={{ padding: 8 }}>Parsing...</div>;
   if (parse.status === 'error') return <div style={{ padding: 8, color: '#c33' }}>Parse error: {parse.error}</div>;
-  return (
-    <div style={{ padding: 8, overflow: 'auto', fontSize: 12, lineHeight: 1.4 }}>
+    const ref = useAutoHideScrollbar<HTMLDivElement>();
+    return (
+      <div ref={ref} style={{ padding: 8, fontSize: 12, lineHeight: 1.4 }}>
       <pre style={{ margin: 0 }}>{safeStringify(parse.ast)}</pre>
     </div>
   );

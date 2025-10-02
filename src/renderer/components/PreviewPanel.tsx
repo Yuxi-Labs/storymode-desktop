@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar.js';
 import { useStore, selectFile } from '../store/store.js';
 
 function buildPreview(text: string): { __html: string } {
@@ -24,5 +25,6 @@ export const PreviewPanel: React.FC = () => {
   const file = useStore(selectFile);
   if (!file.content) return <div style={{ padding: 12, fontSize: 12, opacity: .6 }}>No file loaded.</div>;
   const html = buildPreview(file.content);
-  return <div className="preview-root" style={{ padding: 16, fontSize: 13, lineHeight: 1.6, fontFamily: 'serif', overflow: 'auto' }} dangerouslySetInnerHTML={html} />;
+  const ref = useAutoHideScrollbar<HTMLDivElement>();
+  return <div ref={ref} className="preview-root" style={{ padding: 16, fontSize: 13, lineHeight: 1.6, fontFamily: 'serif' }} dangerouslySetInnerHTML={html} />;
 };

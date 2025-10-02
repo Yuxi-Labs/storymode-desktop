@@ -66,7 +66,7 @@ Submenus and actions:
   - Maximize / Restore (native)
 
 Removed / Excluded from MVP:
-- Fullscreen, Reload, Zoom controls, Dev Tools, World Browser, Inspector (renamed & consolidated under Panels if present), Appearance submenu (merged into Themes), Save All Narrative Files.
+- Fullscreen, Reload, Zoom controls, Dev Tools, Story Browser (legacy term "World Browser" removed), Inspector (renamed & consolidated under Panels if present), Appearance submenu (merged into Themes), Save All Narrative Files.
 
 ### Help Menu
 - About StoryMode (opens draggable About dialog modal; see Section 9)
@@ -168,6 +168,294 @@ Menu Event `file:newStory` → preload emits `menu:newStory` → renderer listen
 - Details Panel: Right-side contextual panel (formerly Inspector internally in code comments).
 - Active Scene: Scene whose content is currently loaded into editor buffer.
 - Panels: Toggleable UI chrome sections (Sidebar, Details Panel, Status Bar, future Preview).
+
+## 21. StoryMode DSL: Full Language Construct Set (Authoring Grammar)
+
+Status: Consolidated reference. Many constructs below are forward-looking and NOT yet executed by the current parser / compiler unless explicitly noted.
+
+### 21.1 Core Principles
+1. Single Story Invariant: Exactly one `::story:` directive per authoring session / composite. Additional occurrences are invalid and ignored (diagnostics TBD).
+2. Hierarchy: Story → Narratives → Scenes. All narrative and scene declarations must appear within the single story context.
+3. Titles: Authored via `@title:` lines immediately following the directive they apply to (or inside scene blocks). Future parser enhancement will formally bind standalone `@title:` lines—current lightweight structure parser does not yet attach them.
+4. IDs: Normalized lowercase underscore identifiers (non-alphanumeric removed; whitespace/punctuation collapsed to `_`).
+5. Deterministic Ordering: Physical order in file defines narrative order and scene order unless overridden by metadata in a future schema.
+
+### 21.2 File Types
+**`.story`** — Story definition / manifest.
+**`.narrative`** — Narrative arc containing one or more scene blocks.
+
+Example `.story` (illustrative – extended metadata not yet persisted by runtime):
+```
+::story: echoes_of_starlight
+  @title: Echoes of Starlight
+  @authors: Ada Harrow, Nikhil Sato
+  @copyright_holder: Lantern Forge Studios
+  @address: 221B Nebula Ave, Orion Outpost
+  @email:   contact@lanternforge.io
+  @phone:   +1-555-777-4242
+  @start:   intro
+  files:
+    - intro.narrative
+    - main.narrative
+    - outro.narrative
+::end: {{ echoes_of_starlight }}
+```
+
+Example `.narrative` (intro):
+```
+::narrative: intro
+
+::scene: awakening
+@title: Awakening
+@location: Mango Desert
+@time: 04:32 PM
+@characters: Nova, Ken, James
+```
+
+Note: Narrative-level metadata lines directly under `::narrative:` are disallowed; metadata belongs to scene blocks (or future `meta` blocks).
+
+### 21.3 Keywords (Planned / Author-Facing Statements)
+Structure / Identity: `story`, `narrative`, `scene`
+Blocks / Semantic Units: `meta`, `character`
+Dialogue & Expression: `say`, `think`
+Media & Effects: `sfx`, `vfx`, `music`, `cam`
+State & Flow: `flag`, `set`, `goto`
+Annotation: `note`, `tag`
+
+Implementation Status:
+- Implemented structurally: `::story:`, `::narrative:`, `::scene:`.
+- Pending semantic parsing / execution: all others (currently treated as raw text if present).
+
+### 21.4 Canonical Symbol & Glyph Mapping
+This table supersedes prior draft symbol lists. Keyboard tokens (left) are what authors type; the rendered glyph / semantic meaning (right) describes the intended visual substitution layer. Unless noted, substitution is planned—not yet active in the current editor build.
+
+| Typed Token        | Rendered Glyph   | Meaning / Use                                                                                 |
+| ------------------ | ---------------- | --------------------------------------------------------------------------------------------- |
+| `::story:`         | ✤                | Story declaration block (root metadata container)                                            |
+| `@key: value`      | ＠                | Story-level metadata attribute (rendered with fullwidth @ in symbol view)                    |
+| `::narrative:`     | ⧉                | Narrative container (structural; not standalone prose)                                        |
+| `::scene:`         | §                | Scene / section anchor                                                                       |
+| `{{ scene_name }}` | {{ scene_name }} | Scene handle (named reference target)                                                        |
+| `::goto:`          | ⇝                | Non-branching structural jump / redirection to another scene                                 |
+| `::end:`           | ◈                | Explicit end of story or block (optionally with handle)                                      |
+| `[[ Name ]]`       | 🞶 Name          | Character declaration (rendered with prefixed glyph + name)                                  |
+| `"..."`            | ¶                | Dialogue (spoken prose, rendered as prose block)                                             |
+| `>>`               | ↠                | Cue line (action / performance)                                                              |
+| `!!:`              | ⦿                | Sound effect cue                                                                             |
+| `**:`              | ⬟                | Visual effect cue                                                                            |
+| `~~:`              | ♬                | Music / ambience cue                                                                         |
+| `<>:`              | ⧈                | Camera / cinematic cue                                                                       |
+| `[ a, b, c ]`      | [ … ]            | List of values / objects (sounds, items, etc.)                                               |
+| `### …`            | †                | Footnote (exportable)                                                                        |
+| `/// …`            | †                | Footnote (alternate syntax)                                                                  |
+| `# …`              | —                | Single-line comment (ignored)                                                                |
+| `// …`             | —                | Single-line comment (ignored)                                                                |
+| `/* … */`          | —                | Block comment (ignored)                                                                      |
+
+Substitution / Rendering Notes:
+1. Longest-token precedence (e.g., `::scene:` before bare `::`).
+2. Dialogue detection for `"..."` form applies only when a line begins with a straight double quote and ends with a matching unescaped quote (future rule—NOT enforced yet).
+3. Comments (`#`, `//`, `/* */`) remain raw; no glyph injection beyond potential dim styling.
+4. Footnotes map both `###` and `///` styles to the † glyph for uniform export tagging.
+5. Inline handle syntax `{{ name }}` is passed through verbatim; no glyph substitution (acts as a semantic anchor token).
+6. All glyph replacements are presentation-layer only; source file persists original ASCII tokens unless an explicit “normalize to glyphs” action is invoked (future feature).
+
+Implementation Status (delta):
+- Newly introduced glyphs here (✤, ⧉, ◈, ✢, †) were not in prior draft; parser currently ignores them.
+- Character declaration now visually renders with leading 🞶 glyph while retaining source token form `[[ Name ]]`.
+- List syntax `[ a, b, c ]` recognized only lexically for planned structured metadata; parser currently treats as plain text.
+
+Planned Validation (future):
+- Enforce single `::end:` alignment with opening `::story:`.
+- Validate all `::goto:` targets correspond to an existing scene handle or scene ID.
+- Flag unknown effect / music / camera tokens for optional lint diagnostics.
+
+### 21.5 Textual Roles
+Scene IDs, Character Names, Dialogue Lines, Thoughts, Effect IDs, Music Track IDs, Camera Moves, Flag Names, Redirect Targets, Notes, Tags — all normalized or displayed verbatim per their context. Resolution / validation steps for these roles are future-phase (e.g., undefined flag warnings).
+
+### 21.6 Narrative File Structural Order (Canonical)
+1. Narrative declaration (`::narrative:`)
+2. One or more scene blocks in declared order
+3. Optional media/effect lines interspersed within scene content
+4. Optional character dialogue blocks (symbolic forms)
+5. Optional narrative paragraph (`¶` prefixed) sections
+6. Optional redirections (`⇝ target_scene`)
+7. Optional notes (`✎`, `###`, or inline comment forms)
+
+Current runtime enforces only items 1–2 strictly; the rest are lexical placeholders until semantic passes are integrated.
+
+### 21.7 Constraints & Validation (Current vs Planned)
+| Rule | Current Behavior | Planned Behavior |
+|------|------------------|------------------|
+| Single `::story:` | First retained, others ignored | Emit diagnostics for extras |
+| Missing `::story:` | Synthetic story created | Error diagnostic; refuse parse |
+| Titles via `@title:` lines | Not bound by parser walker | Bound to preceding directive |
+| Unicode symbolic lines | Treated as plain text | Tokenized & classified |
+| Comments (#, //) | Not stripped | Stripped before parse IR |
+| Block comments /** **/ | Not recognized | Properly skipped |
+
+### 21.8 Future Extensions
+- Formal grammar (EBNF) exported for tooling
+- LSP support: symbol index, definitions, flag validation
+- Scene jump graph visualization
+- Semantic diff / structural merge utilities
+
+### 21.9 Authoring Guidelines
+1. Start every authoring session with a single `::story:` block.
+2. Keep one narrative per `.narrative` file; do not mix story directive into narrative files.
+3. Avoid starting scene content lines with `::scene:` unless beginning a new scene.
+4. Use descriptive IDs early—renaming later will propagate but may cause churn in external references.
+5. Reserve symbolic constructs for their intended roles to prevent future parser ambiguity.
+
+### 21.10 Known Gaps
+- Title line association pending.
+- Additional directives (`meta`, `flag`, `goto`, etc.) not yet compiled or validated.
+- No escaping mechanism for literal directive tokens (`::scene:` inside body). Escape design TBD.
+
+### 21.11 Comprehensive Example (Canonical Formatting)
+The following end‑to‑end sample showcases most currently specified constructs in their canonical indentation style. It intentionally avoids future / non‑canonical directives. Lines beginning with comments ( `#` / `//` ) are ignored by the parser (future stripping). Each scene and narrative is explicitly closed with `::end:` including a handle for clarity.
+
+Story manifest (`echoes_of_starlight.story`):
+```
+::story: echoes_of_starlight
+  @title: Echoes of Starlight
+  @authors: Ada Harrow, Nikhil Sato
+  @copyright_holder: Lantern Forge Studios
+  @address: 221B Nebula Ave, Orion Outpost
+  @email:   contact@lanternforge.io
+  @phone:   +1-555-777-4242
+  @start:   intro
+  files:
+    - intro.narrative
+    - main.narrative
+    - outro.narrative
+::end: {{ echoes_of_starlight }}
+```
+
+First narrative (`intro.narrative`):
+```
+::narrative: intro
+  @title: Intro
+
+  ::scene: arrival
+    @title: Arrival at the Archive
+    @flag: temporal_buffer_engaged
+
+    >> Dust motes freeze midair as temporal buffers engage.
+    <>: [ wide_shot, slow_zoom_in ]
+
+    [[ Lyra ]]
+    !!: [ terminal_beep ]
+    ¶ Archive core, online?
+
+    [[ Archive ]]
+    **: [ flickering_light ]
+    ¶ Partial. Memory sectors 3, 7, 11 corrupted. ### Systems logged three prior failures.
+
+  ::end: {{ arrival }}
+
+  ::scene: corridor_glitch
+    @title: Corridor Glitch
+
+    >> A shimmer ripples down the corridor walls.
+    ~~: [ low_dissonance, phased_drone ]
+
+    [[ Orion ]]
+    ¶ Seeing the shimmer again.
+
+    [[ Lyra ]]
+    ¶ Anchor yourself. Think of a fixed vector.
+    ::goto: {{ corridor_glitch_alt_a }}
+
+  ::end: {{ corridor_glitch }}
+
+  ::scene: corridor_glitch_alt_a
+    @title: Corridor Glitch (Phase Inversion)
+    @flag: phase_inversion_seen
+
+    >> Corridor bends inward; surfaces fold like mirrored paper.
+    <>: [ inverted_perspective ]
+
+    [[ Orion ]]
+    ¶ Floor inverted. I'm walking on ghosts. /// Possible hallucination.
+
+  ::end: {{ corridor_glitch_alt_a }}
+
+  ::scene: data_marrow
+    @title: Data Marrow
+    @flag: deep_scan_initiated
+    ~~: [ low_oscillation ]
+
+    [[ Archive ]]
+    ¶ Root query?
+
+    [[ Lyra ]]
+    ¶ Search for pattern: undertone resonance spiral.
+    !!: [ resonance_pulse, static_crack ]
+
+  ::end: {{ data_marrow }}
+
+::end: {{ intro }}
+```
+
+Second narrative (selected snippets – `main.narrative`):
+```
+::narrative: main
+  @title: Main Arc
+
+  ::scene: threshold
+    @title: Threshold
+    >> The archive core doors cycle through three failed unlock attempts.
+    !!: [ lock_error_chime, relay_click ]
+    [[ Lyra ]]
+    ¶ Manual override then. Prepare for cascade.
+  ::end: {{ threshold }}
+
+  ::scene: breach
+    @title: Breach
+    **: [ light_lattice, dust_column ]
+    >> A thin seam of pale light spiders across the floor plates.
+    [[ Orion ]]
+    ¶ We tripped something.
+    [[ Lyra ]]
+    ¶ Keep recording. This might be first-contact storage architecture.
+  ::end: {{ breach }}
+
+::end: {{ main }}
+```
+
+Footnotes & comments usage (excerpt from `outro.narrative`):
+```
+::narrative: outro
+  @title: Outro
+
+  ::scene: fade_down
+    @title: Fade Down
+    >> Systems power-cycle in staged silence.
+    ### Core telemetry archived for post-run audit.
+    // Future: add closing ceremony text here.
+  ::end: {{ fade_down }}
+
+::end: {{ outro }}
+```
+
+Demonstrated Elements:
+- Story metadata assortment & files list (multiline canonical form)
+- Narrative + multiple scenes with flags
+- Scene redirection via `::goto:`
+- Media/effect cues (!!:, **:, ~~:, <>:) with list syntax
+- Character declaration + dialogue (`[[ Name ]]`, ¶ lines)
+- Footnote (###) and line comment
+- Handles for all closers ensuring unambiguous endings
+
+Not Yet Demonstrated (Future / Out-of-Scope Here):
+- Variant resolution semantics
+- Choice / branching directives (not in current canonical symbol table)
+- Lore blocks or meta blocks
+- Validation diagnostics (e.g., undefined handles)
+
+---
+End of DSL Section.
 
 ---
 End of Spec Draft.

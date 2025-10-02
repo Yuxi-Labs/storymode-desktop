@@ -1,11 +1,13 @@
 import React from 'react';
+import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar.js';
 import { useStore, selectParse } from '../store/store.js';
 
 export const TokensPanel: React.FC = () => {
   const parse = useStore(selectParse);
   if (!parse.tokens.length) return <div style={{ padding: 8 }}>No tokens.</div>;
+  const ref = useAutoHideScrollbar<HTMLDivElement>();
   return (
-    <div style={{ padding: 8, overflow: 'auto', fontSize: 12 }}>
+    <div ref={ref} style={{ padding: 8, fontSize: 12 }}>
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>

@@ -104,6 +104,32 @@ button {
 
 }
 
+/* --- Resizable vertical handles between panels --- */
+.v-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  flex: 0 0 auto;
+}
+.v-resize-handle:before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.v-resize-handle:hover:before,
+.v-resize-handle:active:before {
+  background: rgba(255,255,255,0.06);
+}
+body.resizing-h {
+  cursor: col-resize !important;
+  user-select: none;
+}
+.v-resize-handle.after-sidebar { border-right: 1px solid var(--border); }
+.v-resize-handle.before-inspector { border-left: 1px solid var(--border); }
+
 .sidebar-outer {
 
   width: var(--sidebar-width);
@@ -1177,6 +1203,13 @@ button {
   background: rgba(255, 99, 71, 0.15);
 
 }
+
+/* Autoglyph line decorations */
+.monaco-editor .sm-glyph.glyph-story:before { content:'✤'; color: hsl(260,70%,65%); }
+.monaco-editor .sm-glyph.glyph-narrative:before { content:'⧉'; color: hsl(200,70%,60%); }
+.monaco-editor .sm-glyph.glyph-scene:before { content:'§'; color: hsl(25,75%,60%); }
+.monaco-editor .sm-glyph.glyph-end:before { content:'◈'; color: hsl(0,0%,55%); }
+.monaco-editor .sm-glyph:before { display:inline-block; width:1.2em; margin-right:4px; text-align:center; opacity:0.9; }
 
 
 

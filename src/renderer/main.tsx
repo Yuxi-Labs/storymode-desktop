@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import "./styles.css";
 import { createRoot } from "react-dom/client";
 import "./monacoSetup";
@@ -76,9 +76,9 @@ function installThemeListeners() {
 installThemeListeners();
 
 const Inspector: React.FC = () => {
-  // Inspector panel remains, but is empty
+  const { inspectorWidthPx } = useStore(selectUI);
   return (
-    <aside className="inspector">
+    <aside className="inspector" style={{ width: inspectorWidthPx }}>
       <div className="inspector-content" />
     </aside>
   );
@@ -161,14 +161,14 @@ const WelcomeEmptyState: React.FC = () => {
 };
 
 const Sidebar: React.FC = () => {
-  const { sidebarCollapsed } = useStore(selectUI);
+  const { sidebarCollapsed, sidebarWidthPx } = useStore(selectUI);
 
   if (sidebarCollapsed) {
     return <aside className="sidebar-outer sidebar-collapsed" aria-hidden />;
   }
 
   return (
-    <aside className="sidebar-outer">
+    <aside className="sidebar-outer" style={{ width: sidebarWidthPx }}>
       <header className="sidebar-header">
         <span className="sidebar-title">STORY</span>
       </header>
@@ -179,6 +179,33 @@ const Sidebar: React.FC = () => {
       </div>
     </aside>
   );
+};
+
+const VResizeHandle: React.FC<{ pos: 'after-sidebar' | 'before-inspector'; onDrag: (dx: number) => void; onDouble?: () => void; }> = ({ pos, onDrag, onDouble }) => {
+  const dragging = useRef(false);
+  const startX = useRef<number>(0);
+  const cls = `v-resize-handle ${pos}`;
+  const onMouseMove = (e: MouseEvent) => {
+    if (!dragging.current) return;
+  const dx = e.clientX - (startX.current ?? 0);
+    onDrag(dx);
+  };
+  const endDrag = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    document.body.classList.remove('resizing-h');
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', endDrag);
+  };
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    dragging.current = true;
+    startX.current = e.clientX;
+    document.body.classList.add('resizing-h');
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', endDrag);
+  };
+  return <div className={cls} onMouseDown={onMouseDown} onDoubleClick={onDouble} role="separator" aria-orientation="vertical" />;
 };
 
 const IconFile: React.FC<{ kind: string }> = ({ kind }) => (
@@ -236,7 +263,29 @@ const StatusBar: React.FC = () => {
   const markAllRead = useStore((s) => s.markAllRead);
 
   const kind = parse.fileKind || file.fileType || (file.path || file.content ? "story" : null);
-  const encoding = file.encoding ? file.encoding.toUpperCase() : null;
+  // Present encoding: map internal codes to human readable tokens
+  const mapEncoding = (enc?: string | null) => {
+    if (!enc) return null;
+    const lower = enc.toLowerCase();
+    switch (lower) {
+      case 'utf-8-bom': return 'UTF-8 (BOM)';
+      case 'utf-16le-bom': return 'UTF-16 LE (BOM)';
+      case 'utf-16be-bom': return 'UTF-16 BE (BOM)';
+      case 'utf-32le-bom': return 'UTF-32 LE (BOM)';
+      case 'utf-32be-bom': return 'UTF-32 BE (BOM)';
+      case 'utf-16le': return 'UTF-16 LE';
+      case 'utf-16be': return 'UTF-16 BE';
+      case 'utf-32le': return 'UTF-32 LE';
+      case 'utf-32be': return 'UTF-32 BE';
+      case 'utf-8': return 'UTF-8';
+      case 'unknown': return 'Unknown';
+      default: return enc.toUpperCase();
+    }
+  };
+  const encoding = mapEncoding(file.encoding);
+  // Derive file type label only (Story / Narrative / Scene)
+  const activeEntity = useStore(s => s.storyModel.activeEntity);
+  const entityLabel = activeEntity ? (activeEntity.type === 'story' ? 'Story' : activeEntity.type === 'narrative' ? 'Narrative' : 'Scene') : null;
   const caretLine = ui.caretLine ?? 1;
   const caretColumn = ui.caretColumn ?? 1;
   const diagnostics = parse.diagnostics;
@@ -246,10 +295,9 @@ const StatusBar: React.FC = () => {
   return (
     <footer className="status-bar" role="contentinfo">
   <div className="sb-left">
-        {kind && (
-          <div className="sb-item sb-kind" data-tip={`File: ${kind}`}>
-            <IconFile kind={kind} />
-            <span className="sb-text">{kind}</span>
+        {entityLabel && (
+          <div className="sb-item sb-kind" data-tip={`File type`}>
+            <span className="sb-text">{entityLabel}</span>
           </div>
         )}
         {encoding && (
@@ -357,10 +405,9 @@ const App: React.FC = () => {
       const handleOpenResult = (e: Event) => {
         const detail: any = (e as CustomEvent).detail;
         if (detail && typeof detail.content === 'string') {
-          // Try composite load first
           const loaded = useStore.getState().loadStoryComposite(detail.content, detail.path);
           if (!loaded) {
-            useStore.getState().openFile(detail.path, detail.content);
+            useStore.getState().openFile(detail.path, detail.content, detail.sizeBytes, detail.lastModifiedMs, detail.encoding);
           }
         }
       };
@@ -432,12 +479,14 @@ const App: React.FC = () => {
       <div className="workspace">
         <ActivityBar />
         <Sidebar />
+        {hasStory && <ResizeSidebarHandle />}
         <div className="center-stage">
           {hasStory && <TabBar />}
           <div className="editor-stage">
             {hasStory ? (showPreview ? <PreviewPanel /> : <Editor />) : <WelcomeEmptyState />}
           </div>
         </div>
+        {hasStory && <ResizeInspectorHandle />}
         <Inspector />
       </div>
       {ui.statusBarVisible && <StatusBar />}
@@ -486,6 +535,21 @@ const App: React.FC = () => {
       )}
     </div>
   );
+};
+
+const ResizeSidebarHandle: React.FC = () => {
+  const width = useStore(s => s.ui.sidebarWidthPx);
+  const setWidth = useStore(s => s.setSidebarWidth);
+  const onDrag = (dx: number) => setWidth(width + dx);
+  const onDouble = () => setWidth(240);
+  return <VResizeHandle pos="after-sidebar" onDrag={onDrag} onDouble={onDouble} />;
+};
+const ResizeInspectorHandle: React.FC = () => {
+  const width = useStore(s => s.ui.inspectorWidthPx);
+  const setWidth = useStore(s => s.setInspectorWidth);
+  const onDrag = (dx: number) => setWidth(width - dx); // handle sits to left of inspector
+  const onDouble = () => setWidth(320);
+  return <VResizeHandle pos="before-inspector" onDrag={onDrag} onDouble={onDouble} />;
 };
 
 createRoot(document.getElementById("root")!).render(<App />);

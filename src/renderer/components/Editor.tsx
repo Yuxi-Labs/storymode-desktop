@@ -17,6 +17,38 @@ export const Editor: React.FC = () => {
   const updateDerivedFileStats = useStore((s: StoreState) => (s as any).updateDerivedFileStats);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<any>(null);
+  const glyphDecosRef = useRef<string[]>([]);
+  const glyphSchedule = useRef<number | null>(null);
+
+  function applyGlyphDecorations(monaco: any) {
+    if (!editorRef.current) return;
+    const model = editorRef.current.getModel();
+    if (!model) return;
+    const lines = model.getLineCount();
+    const newDecos: any[] = [];
+    const glyphMap: Array<{ re: RegExp; glyph: string; cls: string }> = [
+      { re: /^::story:\s+[a-zA-Z0-9_]+/, glyph: '✤', cls: 'glyph-story' },
+      { re: /^::narrative:\s+[a-zA-Z0-9_]+/, glyph: '⧉', cls: 'glyph-narrative' },
+      { re: /^::scene:\s+[a-zA-Z0-9_]+/, glyph: '§', cls: 'glyph-scene' },
+      { re: /^::end:\s+\{\{[^}]+\}\}/, glyph: '◈', cls: 'glyph-end' },
+    ];
+    for (let i = 1; i <= lines; i++) {
+      const text = model.getLineContent(i);
+      for (const m of glyphMap) {
+        if (m.re.test(text)) {
+          newDecos.push({
+            range: new monaco.Range(i, 1, i, 1),
+            options: {
+              isWholeLine: false,
+              beforeContentClassName: `sm-glyph ${m.cls}`,
+            },
+          });
+          break;
+        }
+      }
+    }
+    glyphDecosRef.current = editorRef.current.deltaDecorations(glyphDecosRef.current, newDecos);
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -36,10 +68,13 @@ export const Editor: React.FC = () => {
         const val = editorRef.current.getValue();
         updateContent(val);
         updateDerivedFileStats();
+        if (glyphSchedule.current) cancelAnimationFrame(glyphSchedule.current);
+        glyphSchedule.current = requestAnimationFrame(() => applyGlyphDecorations(monaco));
       });
       editorRef.current.onDidChangeCursorPosition((e: any) => {
         setCaret(e.position.lineNumber, e.position.column);
       });
+      applyGlyphDecorations(monaco);
     });
     return () => { cancel = true; if (editorRef.current) editorRef.current.dispose(); disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

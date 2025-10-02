@@ -7,7 +7,7 @@
   shell,
   type MenuItemConstructorOptions,
 } from "electron";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, stat } from "node:fs/promises";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -49,12 +49,113 @@ const addRecentStory = (filePath: string) => {
   recentStories = [filePath, ...recentStories.filter((item) => item !== filePath)].slice(0, 8);
 };
 
+function detectEncoding(buffer: Buffer): { encoding: string; text: string } {
+  // 1. BOM checks (authoritative)
+  if (buffer.length >= 4) {
+    if (buffer[0] === 0xFF && buffer[1] === 0xFE && buffer[2] === 0x00 && buffer[3] === 0x00) {
+      // UTF-32 LE BOM
+      const u16 = Buffer.alloc((buffer.length - 4) / 2);
+      for (let i = 4, j = 0; i + 1 < buffer.length; i += 4, j += 2) {
+        u16[j] = buffer[i];
+        u16[j + 1] = buffer[i + 1];
+      }
+      return { encoding: 'utf-32le-bom', text: u16.toString('utf16le') };
+    }
+    if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xFE && buffer[3] === 0xFF) {
+      // UTF-32 BE BOM
+      const u16 = Buffer.alloc((buffer.length - 4) / 2);
+      for (let i = 4, j = 0; i + 3 < buffer.length; i += 4, j += 2) {
+        u16[j] = buffer[i + 2];
+        u16[j + 1] = buffer[i + 3];
+      }
+      return { encoding: 'utf-32be-bom', text: u16.toString('utf16le') };
+    }
+  }
+  if (buffer.length >= 3) {
+    if (buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+      return { encoding: 'utf-8-bom', text: buffer.slice(3).toString('utf8') };
+    }
+  }
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
+      return { encoding: 'utf-16le-bom', text: buffer.slice(2).toString('utf16le') };
+    }
+    if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
+      const swapped = Buffer.alloc(buffer.length - 2);
+      for (let i = 2; i + 1 < buffer.length; i += 2) {
+        swapped[i - 2] = buffer[i + 1];
+        swapped[i - 1] = buffer[i];
+      }
+      return { encoding: 'utf-16be-bom', text: swapped.toString('utf16le') };
+    }
+  }
+
+  // 2. Heuristics for UTF-16 without BOM
+  const looksLikeUtf16LE = () => {
+    // Many zero high bytes in even positions suggests UTF-16LE ASCII range
+    if (buffer.length < 4) return false;
+    let zeros = 0;
+    const sample = Math.min(buffer.length, 512);
+    for (let i = 1; i < sample; i += 2) if (buffer[i] === 0x00) zeros++;
+    const ratio = zeros / (sample / 2);
+    return ratio > 0.6; // heuristic threshold
+  };
+  const looksLikeUtf16BE = () => {
+    if (buffer.length < 4) return false;
+    let zeros = 0;
+    const sample = Math.min(buffer.length, 512);
+    for (let i = 0; i < sample; i += 2) if (buffer[i] === 0x00) zeros++;
+    const ratio = zeros / (sample / 2);
+    return ratio > 0.6;
+  };
+  if (looksLikeUtf16LE()) {
+    return { encoding: 'utf-16le', text: buffer.toString('utf16le') };
+  }
+  if (looksLikeUtf16BE()) {
+    // swap bytes to decode
+    const swapped = Buffer.alloc(buffer.length);
+    for (let i = 0; i + 1 < buffer.length; i += 2) {
+      swapped[i] = buffer[i + 1];
+      swapped[i + 1] = buffer[i];
+    }
+    return { encoding: 'utf-16be', text: swapped.toString('utf16le') };
+  }
+
+  // 3. UTF-8 validation (simple): ensure continuation bytes follow multibyte patterns
+  const isValidUtf8 = () => {
+    let i = 0; const len = buffer.length;
+    while (i < len) {
+      const byte = buffer[i];
+      if ((byte & 0x80) === 0) { i++; continue; } // ASCII
+      let needed = 0;
+      if ((byte & 0xE0) === 0xC0) needed = 1; else if ((byte & 0xF0) === 0xE0) needed = 2; else if ((byte & 0xF8) === 0xF0) needed = 3; else return false;
+      if (i + needed >= len) return false;
+      for (let j = 1; j <= needed; j++) if ((buffer[i + j] & 0xC0) !== 0x80) return false;
+      i += needed + 1;
+    }
+    return true;
+  };
+  if (isValidUtf8()) {
+    return { encoding: 'utf-8', text: buffer.toString('utf8') };
+  }
+
+  // 4. Fallback: unknown (avoid mislabeling)
+  return { encoding: 'unknown', text: buffer.toString('utf8') };
+}
+
 async function openStoryFromDisk(win: BrowserWindow, filePath: string) {
   try {
-    const content = await readFile(filePath, "utf8");
+    const [buffer, fileStat] = await Promise.all([
+      readFile(filePath),
+      stat(filePath).catch(() => undefined),
+    ]);
+    const { encoding, text } = detectEncoding(buffer);
     win.webContents.send("file:openResult", {
       path: filePath,
-      content,
+      content: text,
+      encoding,
+      sizeBytes: fileStat?.size,
+      lastModifiedMs: fileStat?.mtimeMs,
     });
     addRecentStory(filePath);
   } catch (err) {
@@ -98,11 +199,62 @@ ipcMain.handle("compile:run", async (_e, args: { content?: string; filename?: st
   }
 });
 
+// Provides parsing functionality to the renderer (debounced in hooks) and mirrors
+// the expected request/response shape documented in ARCHITECTURE_DRAFT.md.
+ipcMain.handle("parse:run", async (_e, args: { content?: string; filename?: string }) => {
+  try {
+    const content = typeof args.content === "string" ? args.content : "";
+    const result: ParseResponse = await parseSource(content, {
+      filename: args.filename,
+      collectTokens: true,
+      collectSceneIndex: true,
+    });
+    return result;
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle("app:versionInfo", async () => ({
   coreVersion: getVersion("@yuxilabs/storymode-core"),
   compilerVersion: getVersion("@yuxilabs/storymode-compiler"),
   appVersion: app.getVersion(),
 }));
+
+// Present a native open dialog; returns { canceled, paths } where paths is empty if canceled.
+ipcMain.handle("file:openDialog", async (_e) => {
+  const focused = BrowserWindow.getFocusedWindow();
+  const result = await (
+    focused
+      ? dialog.showOpenDialog(focused, {
+          properties: ["openFile"],
+          filters: [
+            { name: "StoryMode", extensions: ["story", "txt", "smode", "md"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        })
+      : dialog.showOpenDialog({
+          properties: ["openFile"],
+          filters: [
+            { name: "StoryMode", extensions: ["story", "txt", "smode", "md"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        })
+  );
+  return { canceled: result.canceled, paths: result.filePaths };
+});
+
+// Simple file read wrapper returning UTF-8 text. Errors surface as { ok:false, error }.
+ipcMain.handle("file:read", async (_e, args: { path?: string }) => {
+  try {
+    if (!args?.path) return { ok: false, error: "No path provided" };
+    const buffer = await readFile(args.path);
+    const { encoding, text } = detectEncoding(buffer);
+    return { ok: true, content: text, encoding };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+});
 
 ipcMain.handle("file:write", async (_e, args: { path: string; content: string }) => {
   try {
@@ -185,13 +337,21 @@ ipcMain.on('explorer:contextMenu', async (event, payload: ExplorerContextPayload
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
   const template: MenuItemConstructorOptions[] = [];
-  template.push({ label: 'Rename', click: () => {
-    win.webContents.send('explorer:requestRename', payload);
-  }});
+  // Common rename
+  template.push({ label: 'Rename', click: () => win.webContents.send('explorer:requestRename', payload) });
+  // Add narrative under story
+  if (payload.type === 'story') {
+    template.push({ label: 'Add Narrative', click: () => win.webContents.send('explorer:addNarrative', {}) });
+  }
+  // Narrative-specific items
+  if (payload.type === 'narrative') {
+    template.push({ label: 'Add Scene', click: () => win.webContents.send('explorer:addScene', { narrativeId: payload.narrativeId }) });
+    template.push({ type: 'separator' });
+    template.push({ label: 'Delete Narrative', click: () => win.webContents.send('explorer:deleteNarrative', { narrativeId: payload.narrativeId, title: payload.title }) });
+  }
+  // Scene-specific delete
   if (payload.type === 'scene') {
-    template.push({ label: 'Delete', click: () => {
-      win.webContents.send('explorer:requestDeleteScene', { id: payload.sceneId, title: payload.title });
-    }});
+    template.push({ label: 'Delete Scene', click: () => win.webContents.send('explorer:requestDeleteScene', { id: payload.sceneId, title: payload.title }) });
   }
   const menu = Menu.buildFromTemplate(template);
   menu.popup({ window: win });

@@ -73,6 +73,9 @@ ipcRenderer.on('explorer:renameResult', (_e, data) => emit('explorer:renameResul
 ipcRenderer.on('explorer:deleteScene', (_e, data) => emit('explorer:deleteScene', data));
 ipcRenderer.on('explorer:requestRename', (_e, data) => emit('explorer:requestRename', data));
 ipcRenderer.on('explorer:requestDeleteScene', (_e, data) => emit('explorer:requestDeleteScene', data));
+ipcRenderer.on('explorer:addNarrative', () => emit('explorer:addNarrative'));
+ipcRenderer.on('explorer:addScene', (_e, data) => emit('explorer:addScene', data));
+ipcRenderer.on('explorer:deleteNarrative', (_e, data) => emit('explorer:deleteNarrative', data));
 
 try {
   contextBridge.exposeInMainWorld("storymode", api);
