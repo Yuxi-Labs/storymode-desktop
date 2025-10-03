@@ -31,9 +31,10 @@ async function ensureStoryMode() {
         tokenizer: {
           root: [
             // Directives
-            [/^(::story:)(\s+)([a-zA-Z0-9_]+)/, ['keyword.directive', 'white', 'identifier.story']],
-            [/^(::narrative:)(\s+)([a-zA-Z0-9_]+)/, ['keyword.directive','white','identifier.narrative']],
-            [/^(::scene:)(\s+)([a-zA-Z0-9_]+)/, ['keyword.directive','white','identifier.scene']],
+            // Allow CJK Unified Ideographs (\u4E00-\u9FFF) and basic Latin letters / digits / underscore in IDs
+            [/^(::story:)(\s+)([\u4E00-\u9FFF\w]+)/, ['keyword.directive', 'white', 'identifier.story']],
+            [/^(::narrative:)(\s+)([\u4E00-\u9FFF\w]+)/, ['keyword.directive','white','identifier.narrative']],
+            [/^(::scene:)(\s+)([\u4E00-\u9FFF\w]+)/, ['keyword.directive','white','identifier.scene']],
             [/^(::end:)(\s*)(\{\{)([^}]+)(\}\})/, ['keyword.directive','white','delimiter.brace','identifier.handle','delimiter.brace']],
             [/^(::goto:)(\s*)(\{\{)([^}]+)(\}\})/, ['keyword.flow','white','delimiter.brace','identifier.handle','delimiter.brace']],
             // Future directives (::choice:, ::lore:) omitted until added to canonical spec
@@ -123,7 +124,7 @@ async function ensureStoryMode() {
       });
 
       // Completion provider (basic directives & metadata)
-      const directiveSuggestions = [ '::story:', '::narrative:', '::scene:', '::end:', '::goto:' ];
+  const directiveSuggestions = [ '::story:', '::narrative:', '::scene:', '::end:', '::goto:' ];
       const metadataSuggestions = ['@title:', '@flag:', '@authors:', '@copyright_holder:', '@address:', '@email:', '@phone:', '@start:'];
       monaco.languages.registerCompletionItemProvider('storymode', {
         triggerCharacters: [':', '@', '{'],
@@ -151,7 +152,7 @@ async function ensureStoryMode() {
             if (/::goto:\s*\{\{[^}]*$/.test(line)) {
               // Basic heuristic: scan model for scene declarations
               const text = model.getValue();
-              const sceneMatches = Array.from(text.matchAll(/^::scene:\s+([a-zA-Z0-9_]+)/gm)) as RegExpMatchArray[];
+              const sceneMatches = Array.from(text.matchAll(/^::scene:\s+([\u4E00-\u9FFF\w]+)/gm)) as RegExpMatchArray[];
               const sceneIds = sceneMatches.map(m => m[1]);
               suggestions.push(...sceneIds.map(id => ({
                 label: id,

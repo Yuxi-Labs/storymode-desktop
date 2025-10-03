@@ -1,6 +1,7 @@
 ﻿import React, { useMemo } from "react";
+import { t } from '../i18n.js';
 import { useStore, selectFile } from "../store/store.js";
-import { parseWorldStructure, type WorldNode } from "../utils/world.js";
+import { parseStoryStructure, type StoryStructureNode } from "../utils/world.js";
 
 interface MetaItem {
   key: string;
@@ -12,13 +13,13 @@ export const InfoPanel: React.FC = () => {
   const content = file.content || "";
 
   const meta = useMemo(() => extractMeta(content), [content]);
-  const world = useMemo(() => parseWorldStructure(content), [content]);
+  const world = useMemo(() => parseStoryStructure(content), [content]);
 
   if (!content) {
     return (
       <div className="meta-panel empty">
-        <h3>Start writing</h3>
-        <p>Open a story to view metadata.</p>
+        <h3>{t('meta.empty.title')}</h3>
+        <p>{t('meta.empty.body')}</p>
       </div>
     );
   }
@@ -31,7 +32,7 @@ export const InfoPanel: React.FC = () => {
   return (
     <div className="meta-panel">
       <section className="meta-section">
-        <header>Document metadata</header>
+  <header>{t('meta.section.doc')}</header>
         {hasMetadata ? (
           <dl className="meta-list">
             {meta.map((item: MetaItem) => (
@@ -42,24 +43,24 @@ export const InfoPanel: React.FC = () => {
             ))}
           </dl>
         ) : (
-          <div className="meta-empty">No @ directives found near the top of this document.</div>
+          <div className="meta-empty">{t('meta.noneFound')}</div>
         )}
       </section>
 
       {hasWorldOutline && (
         <section className="meta-section">
-          <header>World outline</header>
+          <header>{t('meta.section.world')}</header>
           <div className="meta-summary" role="list">
             <div className="meta-summary-item" role="listitem">
-              <span className="meta-summary-label">Stories</span>
+              <span className="meta-summary-label">{t('count.stories')}</span>
               <span className="meta-summary-value">{world.length}</span>
             </div>
             <div className="meta-summary-item" role="listitem">
-              <span className="meta-summary-label">Narratives</span>
+              <span className="meta-summary-label">{t('count.narratives')}</span>
               <span className="meta-summary-value">{narrativeCount}</span>
             </div>
             <div className="meta-summary-item" role="listitem">
-              <span className="meta-summary-label">Scenes</span>
+              <span className="meta-summary-label">{t('count.scenes')}</span>
               <span className="meta-summary-value">{sceneCount}</span>
             </div>
           </div>
@@ -85,7 +86,7 @@ function extractMeta(text: string): MetaItem[] {
   return out;
 }
 
-function countNodes(tree: WorldNode[], type: WorldNode["type"]): number {
+function countNodes(tree: StoryStructureNode[], type: StoryStructureNode["type"]): number {
   let total = 0;
   const stack = [...tree];
   while (stack.length) {

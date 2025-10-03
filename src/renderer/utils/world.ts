@@ -16,7 +16,7 @@ export function parseStoryStructure(content: string): StoryStructureNode[] {
     const line = rawLine.trim();
     if (!line.length) return;
 
-    const storyMatch = /^::story:\s*(.+)$/i.exec(line);
+  const storyMatch = /^::story:\s*(.+)$/i.exec(line);
     if (storyMatch) {
       if (!currentStory) {
         const node = createNode("story", storyMatch[1], index);
@@ -30,7 +30,7 @@ export function parseStoryStructure(content: string): StoryStructureNode[] {
       return;
     }
 
-    const narrativeMatch = /^::narrative:\s*(.+)$/i.exec(line);
+  const narrativeMatch = /^::narrative:\s*(.+)$/i.exec(line);
     if (narrativeMatch) {
       const node = createNode("narrative", narrativeMatch[1], index);
       if (!currentStory) {
@@ -42,7 +42,7 @@ export function parseStoryStructure(content: string): StoryStructureNode[] {
       return;
     }
 
-    const sceneMatch = /^::scene:\s*(.+)$/i.exec(line);
+  const sceneMatch = /^::scene:\s*(.+)$/i.exec(line);
     if (sceneMatch) {
       const node = createNode("scene", sceneMatch[1], index);
       if (!currentNarrative) {

@@ -26,24 +26,24 @@ export const Editor: React.FC = () => {
     if (!model) return;
     const lines = model.getLineCount();
     const newDecos: any[] = [];
-    const glyphMap: Array<{ re: RegExp; glyph: string; cls: string }> = [
-      { re: /^::story:\s+[a-zA-Z0-9_]+/, glyph: '✤', cls: 'glyph-story' },
-      { re: /^::narrative:\s+[a-zA-Z0-9_]+/, glyph: '⧉', cls: 'glyph-narrative' },
-      { re: /^::scene:\s+[a-zA-Z0-9_]+/, glyph: '§', cls: 'glyph-scene' },
-      { re: /^::end:\s+\{\{[^}]+\}\}/, glyph: '◈', cls: 'glyph-end' },
-    ];
-    for (let i = 1; i <= lines; i++) {
-      const text = model.getLineContent(i);
-      for (const m of glyphMap) {
-        if (m.re.test(text)) {
-          newDecos.push({
-            range: new monaco.Range(i, 1, i, 1),
-            options: {
-              isWholeLine: false,
-              beforeContentClassName: `sm-glyph ${m.cls}`,
-            },
-          });
-          break;
+    // Glyph decoration disabled for core directives (::story:, ::narrative:, ::scene:, ::end:) and metadata lines.
+    // These symbols are now plain text; previous glyphs (✤, ⧉, §, ◈) intentionally freed for future reuse.
+    const glyphMap: Array<{ re: RegExp; glyph: string; cls: string }> = [];
+    // Decoration loop no-op because glyphMap is empty (retained structure for potential future glyph features).
+    if (glyphMap.length) {
+      for (let i = 1; i <= lines; i++) {
+        const text = model.getLineContent(i);
+        for (const m of glyphMap) {
+          if (m.re.test(text)) {
+            newDecos.push({
+              range: new monaco.Range(i, 1, i, 1),
+              options: {
+                isWholeLine: false,
+                beforeContentClassName: `sm-glyph ${m.cls}`,
+              },
+            });
+            break;
+          }
         }
       }
     }

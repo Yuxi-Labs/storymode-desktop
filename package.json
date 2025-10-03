@@ -1,8 +1,10 @@
 {
   "name": "storymode-desktop",
   "private": true,
-  "version": "0.1.0",
-  "description": "StoryMode editor",
+  "version": "0.3.0",
+  "description": "StoryMode Desktop authoring environment",
+  "license": "MIT",
+  "author": "William Sawyerr",
   "main": "dist/main/main/main.js",
   "type": "module",
   "scripts": {

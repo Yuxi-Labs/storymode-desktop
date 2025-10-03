@@ -38,6 +38,7 @@ declare global {
         themeId?: string | null;
       }): void;
       explorerContextMenu(payload: { id: string; type: 'story'|'narrative'|'scene'; narrativeId?: string; sceneId?: string; title?: string }): void;
+      telemetryEvent?(event: string, props?: Record<string, any>): void;
     };
   }
 }

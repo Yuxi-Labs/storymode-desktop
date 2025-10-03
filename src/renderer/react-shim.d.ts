@@ -9,6 +9,8 @@ declare module 'react' {
   export function useRef<T = any>(init: T | null): { current: T | null };
   export function useState<S>(init: S): [S, (v: S) => void];
   export function useMemo<T>(factory: () => T, deps: any[]): T;
+  export function createContext<T = any>(defaultValue: T | null): any;
+  export function useContext<T = any>(ctx: any): T;
   const React: { createElement: any };
   export default React;
 }

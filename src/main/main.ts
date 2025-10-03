@@ -14,6 +14,9 @@ import url from "node:url";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseSource } from "../services/parseSource.js";
 import { compileSource } from "../services/compileSource.js";
+import { initTelemetry } from './telemetry.js';
+import { createRemoteUploader } from './telemetryUploader.js';
+import { readFile as fsReadFile } from 'node:fs/promises';
 import type {
   ParseResponse,
   CompileResponse,
@@ -44,6 +47,116 @@ let shellState: ShellMenuState = {
 };
 
 let recentStories: string[] = [];
+type TelemetryHandle = { track: (e: string, props?: Record<string, any>) => void } | null;
+let telemetry: TelemetryHandle = null;
+// Lightweight indirection so we can safely call track() before telemetry init completes.
+let track: (event: string, props?: Record<string, any>) => void = () => {};
+
+// ---------------- Localization (main process) ----------------
+let currentLocale: 'en' | 'zh-CN' = 'en';
+const menuI18n: Record<'en'|'zh-CN', Record<string,string>> = {
+  en: {
+    'menu.file': 'File',
+    'menu.file.new': 'New Story',
+    'menu.file.open': 'Open Story…',
+    'menu.file.openRecent': 'Open Recent',
+    'menu.file.noRecent': 'No recent stories',
+    'menu.file.save': 'Save Story',
+    'menu.file.saveAs': 'Save Story As…',
+    'menu.file.preview': 'Preview Story',
+    'menu.file.print': 'Print Script…',
+    'menu.file.settings': 'Settings…',
+    'menu.file.close': 'Close Story',
+    'menu.edit': 'Edit',
+    'menu.edit.undo': 'Undo',
+    'menu.edit.redo': 'Redo',
+    'menu.edit.cut': 'Cut',
+    'menu.edit.copy': 'Copy',
+    'menu.edit.paste': 'Paste',
+    'menu.edit.selectAll': 'Select All',
+    'menu.edit.selectLine': 'Select Line',
+    'menu.edit.selectBlock': 'Select Block',
+    'menu.edit.toggleComment': 'Toggle Comment',
+    'menu.view': 'View',
+    'menu.view.themes': 'Themes',
+    'menu.view.themes.auto': 'Auto',
+    'menu.view.themes.light': 'Light Mode',
+    'menu.view.themes.dark': 'Dark Mode',
+    'menu.view.panels': 'Panels',
+    'menu.view.panels.sidebar': 'Sidebar',
+    'menu.view.panels.details': 'Details Panel',
+    'menu.view.panels.statusBar': 'Status Bar',
+    'menu.view.window': 'Window',
+    'menu.view.window.minimize': 'Minimize',
+    'menu.view.window.maximize': 'Maximize',
+    'menu.view.devtools': 'Toggle Developer Tools',
+    'menu.help': 'Help',
+    'menu.help.docs': 'StoryMode Documentation',
+    'menu.help.language': 'Narrative Language Help',
+    'menu.help.cheatsheet': 'Cheat Sheet',
+    'menu.help.requestSupport': 'Request Support…',
+    'menu.help.reportBug': 'Report a Bug…',
+    'menu.help.requestFeature': 'Request a Feature…',
+    'menu.help.about': 'About StoryMode',
+  'menu.help.openTelemetry': 'Open Telemetry Folder',
+    'ctx.rename': 'Rename',
+    'ctx.addNarrative': 'Add Narrative',
+    'ctx.addScene': 'Add Scene',
+    'ctx.deleteNarrative': 'Delete Narrative',
+    'ctx.deleteScene': 'Delete Scene',
+  },
+  'zh-CN': {
+    'menu.file': '文件',
+    'menu.file.new': '新建故事',
+    'menu.file.open': '打开故事…',
+    'menu.file.openRecent': '打开最近',
+    'menu.file.noRecent': '最近没有故事',
+    'menu.file.save': '保存故事',
+    'menu.file.saveAs': '另存故事为…',
+    'menu.file.preview': '预览故事',
+    'menu.file.print': '打印脚本…',
+    'menu.file.settings': '设置…',
+    'menu.file.close': '关闭故事',
+    'menu.edit': '编辑',
+    'menu.edit.undo': '撤销',
+    'menu.edit.redo': '重做',
+    'menu.edit.cut': '剪切',
+    'menu.edit.copy': '复制',
+    'menu.edit.paste': '粘贴',
+    'menu.edit.selectAll': '全选',
+    'menu.edit.selectLine': '选择行',
+    'menu.edit.selectBlock': '选择块',
+    'menu.edit.toggleComment': '切换注释',
+    'menu.view': '视图',
+    'menu.view.themes': '主题',
+    'menu.view.themes.auto': '自动',
+    'menu.view.themes.light': '浅色模式',
+    'menu.view.themes.dark': '深色模式',
+    'menu.view.panels': '面板',
+    'menu.view.panels.sidebar': '侧边栏',
+    'menu.view.panels.details': '详情面板',
+    'menu.view.panels.statusBar': '状态栏',
+    'menu.view.window': '窗口',
+    'menu.view.window.minimize': '最小化',
+    'menu.view.window.maximize': '最大化',
+    'menu.view.devtools': '切换开发者工具',
+    'menu.help': '帮助',
+    'menu.help.docs': 'StoryMode 文档',
+    'menu.help.language': '叙事语言帮助',
+    'menu.help.cheatsheet': '速查表',
+    'menu.help.requestSupport': '请求支持…',
+    'menu.help.reportBug': '报告问题…',
+    'menu.help.requestFeature': '功能建议…',
+    'menu.help.about': '关于 StoryMode',
+  'menu.help.openTelemetry': '打开遥测文件夹',
+    'ctx.rename': '重命名',
+    'ctx.addNarrative': '添加叙事',
+    'ctx.addScene': '添加场景',
+    'ctx.deleteNarrative': '删除叙事',
+    'ctx.deleteScene': '删除场景',
+  }
+};
+const tr = (k: string) => menuI18n[currentLocale][k] || menuI18n.en[k] || k;
 
 const addRecentStory = (filePath: string) => {
   recentStories = [filePath, ...recentStories.filter((item) => item !== filePath)].slice(0, 8);
@@ -180,6 +293,19 @@ ipcMain.on("ui:shellState", (event, incoming: Partial<ShellMenuState>) => {
   shellState = { ...shellState, ...incoming };
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) buildMenu(win);
+  track('ui.shellState', incoming);
+});
+
+// Locale change from renderer
+ipcMain.on('app:setLocale', (_e, loc) => {
+  if (loc === 'en' || loc === 'zh-CN') {
+    if (currentLocale !== loc) {
+      currentLocale = loc;
+      const focused = BrowserWindow.getFocusedWindow();
+      if (focused) buildMenu(focused);
+      track('app.locale.changed', { locale: loc });
+    }
+  }
 });
 
 ipcMain.handle("compile:run", async (_e, args: { content?: string; filename?: string; ast?: unknown; kind?: FileKind; }) => {
@@ -337,24 +463,43 @@ ipcMain.on('explorer:contextMenu', async (event, payload: ExplorerContextPayload
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
   const template: MenuItemConstructorOptions[] = [];
-  // Common rename
-  template.push({ label: 'Rename', click: () => win.webContents.send('explorer:requestRename', payload) });
-  // Add narrative under story
+  template.push({ label: tr('ctx.rename'), click: () => win.webContents.send('explorer:requestRename', payload) });
   if (payload.type === 'story') {
-    template.push({ label: 'Add Narrative', click: () => win.webContents.send('explorer:addNarrative', {}) });
+    template.push({ label: tr('ctx.addNarrative'), click: () => win.webContents.send('explorer:addNarrative', {}) });
   }
-  // Narrative-specific items
   if (payload.type === 'narrative') {
-    template.push({ label: 'Add Scene', click: () => win.webContents.send('explorer:addScene', { narrativeId: payload.narrativeId }) });
+    template.push({ label: tr('ctx.addScene'), click: () => win.webContents.send('explorer:addScene', { narrativeId: payload.narrativeId }) });
     template.push({ type: 'separator' });
-    template.push({ label: 'Delete Narrative', click: () => win.webContents.send('explorer:deleteNarrative', { narrativeId: payload.narrativeId, title: payload.title }) });
+    template.push({ label: tr('ctx.deleteNarrative'), click: () => win.webContents.send('explorer:deleteNarrative', { narrativeId: payload.narrativeId, title: payload.title }) });
   }
-  // Scene-specific delete
   if (payload.type === 'scene') {
-    template.push({ label: 'Delete Scene', click: () => win.webContents.send('explorer:requestDeleteScene', { id: payload.sceneId, title: payload.title }) });
+    template.push({ label: tr('ctx.deleteScene'), click: () => win.webContents.send('explorer:requestDeleteScene', { id: payload.sceneId, title: payload.title }) });
   }
   const menu = Menu.buildFromTemplate(template);
   menu.popup({ window: win });
+  track('explorer.context', { type: payload.type });
+});
+
+ipcMain.on('telemetry:event', (_e, data: { event: string; props?: Record<string, any> }) => {
+  if (!data?.event) return;
+  track(data.event, data.props);
+});
+
+// Summarize telemetry events for user visibility (local only, on-demand)
+ipcMain.handle('telemetry:summary', async () => {
+  try {
+    const dir = path.join(app.getPath('userData'), 'telemetry');
+    const file = path.join(dir, 'events.log');
+    const raw = await fsReadFile(file, 'utf8').catch(() => '');
+    const lines = raw.trim().split(/\n+/).slice(-500); // cap to last 500 for responsiveness
+    let total = 0; const counts: Record<string, number> = {};
+    for (const line of lines) {
+      try { const evt = JSON.parse(line); if (evt && typeof evt.event === 'string') { total++; counts[evt.event] = (counts[evt.event]||0)+1; } } catch {}
+    }
+    return { ok: true, total, lastN: lines.length, counts };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
 });
 
 function getVersion(pkgName: string): string {
@@ -370,240 +515,83 @@ function getVersion(pkgName: string): string {
 
 
 function buildMenu(win: BrowserWindow) {
-  const appearanceDisabled = Boolean(shellState.themeId);
-
   const template: MenuItemConstructorOptions[] = [
     {
-      label: "File",
+      label: tr('menu.file'),
       submenu: [
-        {
-          label: "New Story",
-          accelerator: "CmdOrCtrl+N",
-          click: () => win.webContents.send("file:newStory"),
-        },
-        {
-          label: "Open Story…",
-          accelerator: "CmdOrCtrl+O",
-          click: () => presentOpenStoryDialog(win),
-        },
-        {
-          label: "Open Recent",
-          submenu:
-            recentStories.length > 0
-              ? recentStories.map((filePath) => ({
-                  label: filePath,
-                  click: () => openStoryFromDisk(win, filePath),
-                }))
-              : [{ label: "No recent stories", enabled: false }],
-        },
-        { type: "separator" },
-        {
-          label: "Save Story",
-          accelerator: "CmdOrCtrl+S",
-          click: () => win.webContents.send("file:saveStory"),
-        },
-        {
-          label: "Save Story As…",
-          accelerator: "CmdOrCtrl+Shift+S",
-          click: () => win.webContents.send("file:saveStoryAs"),
-        },
-        { type: "separator" },
-        {
-          label: "Preview Story",
-          type: "checkbox",
-          accelerator: "CmdOrCtrl+Shift+P",
-          checked: shellState.previewVisible,
-          click: () => win.webContents.send("ui:togglePreview"),
-        },
-        {
-          label: "Print Script…",
-          accelerator: "CmdOrCtrl+P",
-          click: () => win.webContents.send("ui:print"),
-        },
-        { type: "separator" },
-        {
-          label: "Settings…",
-          accelerator: process.platform === "darwin" ? "Cmd+," : "Ctrl+,",
-          click: () => win.webContents.send("app:openSettings"),
-        },
-        { type: "separator" },
-        {
-          label: "Close Story",
-          accelerator: "CmdOrCtrl+W",
-          click: () => win.webContents.send("file:closeStory"),
-        },
-        { type: "separator" },
-        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-        { type: "separator" },
-        {
-          label: "Select Line",
-          accelerator: "CmdOrCtrl+L",
-          click: () => win.webContents.send("edit:selectLine"),
-        },
-        {
-          label: "Select Block",
-          accelerator: "CmdOrCtrl+Shift+L",
-          click: () => win.webContents.send("edit:selectBlock"),
-        },
-        {
-          label: "Toggle Comment",
-          accelerator: "CmdOrCtrl+/",
-          click: () => win.webContents.send("edit:toggleComment"),
-        },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        {
-          label: "Themes",
-          submenu: (() => {
-            const items: MenuItemConstructorOptions[] = [
-              {
-                label: "Auto",
-                type: "radio",
-                checked: shellState.themeId == null && shellState.themeMode === "auto",
-                click: () => {
-                  win.webContents.send("ui:applyThemePreset", null);
-                  win.webContents.send("ui:setThemeMode", "auto");
-                },
-              },
-              {
-                label: "Light Mode",
-                type: "radio",
-                checked: shellState.themeId == null && shellState.themeMode === "light",
-                click: () => {
-                  win.webContents.send("ui:applyThemePreset", null);
-                  win.webContents.send("ui:setThemeMode", "light");
-                },
-              },
-              {
-                label: "Dark Mode",
-                type: "radio",
-                checked: shellState.themeId == null && shellState.themeMode === "dark",
-                click: () => {
-                  win.webContents.send("ui:applyThemePreset", null);
-                  win.webContents.send("ui:setThemeMode", "dark");
-                },
-              },
-            ];
-            // Placeholder for plugin-provided themes (future). If any, add separator + radio items.
-            const pluginThemes: { id: string; label: string }[] = []; // currently none
-            if (pluginThemes.length) {
-              items.push({ type: "separator" });
-              for (const pt of pluginThemes) {
-                items.push({
-                  label: pt.label,
-                  type: "radio",
-                  checked: shellState.themeId === pt.id,
-                  click: () => win.webContents.send("ui:applyThemePreset", pt.id),
-                });
-              }
-            }
-            return items;
-          })(),
-        },
-        { type: "separator" },
-        {
-          label: "Panels",
-          submenu: [
-            {
-              label: "Sidebar",
-              type: "checkbox",
-              checked: !shellState.sidebarCollapsed,
-              click: () => win.webContents.send("ui:toggleSidebar"),
-            },
-            {
-              label: "Details Panel",
-              type: "checkbox",
-              checked: shellState.inspectorVisible,
-              click: () => win.webContents.send("ui:toggleInspector"),
-            },
-            {
-              label: "Status Bar",
-              type: "checkbox",
-              checked: shellState.statusBarVisible,
-              click: () => win.webContents.send("ui:toggleStatusBar"),
-            },
-          ],
-        },
-        { type: "separator" },
-        {
-          label: "Window",
-          submenu: [
-            { role: "minimize" },
-            {
-              label: "Maximize",
-              click: () => {
-                if (win.isMaximized()) {
-                  win.unmaximize();
-                } else {
-                  win.maximize();
-                }
-              },
-            },
-          ],
-        },
+        { label: tr('menu.file.new'), accelerator: 'CmdOrCtrl+N', click: () => win.webContents.send('file:newStory') },
+        { label: tr('menu.file.open'), accelerator: 'CmdOrCtrl+O', click: () => presentOpenStoryDialog(win) },
+        { label: tr('menu.file.openRecent'), submenu: recentStories.length ? recentStories.map(fp => ({ label: fp, click: () => openStoryFromDisk(win, fp) })) : [{ label: tr('menu.file.noRecent'), enabled: false }] },
         { type: 'separator' },
-        {
-          label: 'Toggle Developer Tools',
-          accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I',
-          click: () => {
-            const wc = win.webContents;
-            if (wc.isDevToolsOpened()) wc.closeDevTools(); else wc.openDevTools({ mode: 'detach' });
-          }
-        },
-      ],
+        { label: tr('menu.file.save'), accelerator: 'CmdOrCtrl+S', click: () => win.webContents.send('file:saveStory') },
+        { label: tr('menu.file.saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => win.webContents.send('file:saveStoryAs') },
+        { type: 'separator' },
+        { label: tr('menu.file.preview'), type: 'checkbox', accelerator: 'CmdOrCtrl+Shift+P', checked: shellState.previewVisible, click: () => win.webContents.send('ui:togglePreview') },
+        { label: tr('menu.file.print'), accelerator: 'CmdOrCtrl+P', click: () => win.webContents.send('ui:print') },
+        { type: 'separator' },
+        { label: tr('menu.file.settings'), accelerator: process.platform === 'darwin' ? 'Cmd+,' : 'Ctrl+,', click: () => win.webContents.send('app:openSettings') },
+        { type: 'separator' },
+        { label: tr('menu.file.close'), accelerator: 'CmdOrCtrl+W', click: () => win.webContents.send('file:closeStory') },
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
+      ]
     },
     {
-      label: "Help",
+      label: tr('menu.edit'),
       submenu: [
-        {
-          label: "StoryMode Documentation",
-          click: () => shell.openExternal("https://docs.storymode.help"),
-        },
-        {
-          label: "Narrative Language Help",
-          click: () => shell.openExternal("https://docs.storymode.help/language"),
-        },
-        {
-          label: "Cheat Sheet",
-          click: () => shell.openExternal("https://docs.storymode.help/shortcuts"),
-        },
-        { type: "separator" },
-        {
-          label: "Request Support…",
-          click: () => win.webContents.send("help:requestSupport"),
-        },
-        {
-          label: "Report a Bug…",
-          click: () => win.webContents.send("help:reportBug"),
-        },
-        {
-          label: "Request a Feature…",
-          click: () => win.webContents.send("help:requestFeature"),
-        },
-  { type: "separator" },
-        {
-          label: "About StoryMode",
-          click: () => win.webContents.send("app:openAbout"),
-        },
-      ],
+        { role: 'undo', label: tr('menu.edit.undo') },
+        { role: 'redo', label: tr('menu.edit.redo') },
+        { type: 'separator' },
+        { role: 'cut', label: tr('menu.edit.cut') },
+        { role: 'copy', label: tr('menu.edit.copy') },
+        { role: 'paste', label: tr('menu.edit.paste') },
+        { role: 'selectAll', label: tr('menu.edit.selectAll') },
+        { type: 'separator' },
+        { label: tr('menu.edit.selectLine'), accelerator: 'CmdOrCtrl+L', click: () => win.webContents.send('edit:selectLine') },
+        { label: tr('menu.edit.selectBlock'), accelerator: 'CmdOrCtrl+Shift+L', click: () => win.webContents.send('edit:selectBlock') },
+        { label: tr('menu.edit.toggleComment'), accelerator: 'CmdOrCtrl+/', click: () => win.webContents.send('edit:toggleComment') },
+      ]
     },
+    {
+      label: tr('menu.view'),
+      submenu: [
+        { label: tr('menu.view.themes'), submenu: [
+          { label: tr('menu.view.themes.auto'), type: 'radio', checked: shellState.themeId == null && shellState.themeMode === 'auto', click: () => { win.webContents.send('ui:applyThemePreset', null); win.webContents.send('ui:setThemeMode', 'auto'); } },
+          { label: tr('menu.view.themes.light'), type: 'radio', checked: shellState.themeId == null && shellState.themeMode === 'light', click: () => { win.webContents.send('ui:applyThemePreset', null); win.webContents.send('ui:setThemeMode', 'light'); } },
+          { label: tr('menu.view.themes.dark'), type: 'radio', checked: shellState.themeId == null && shellState.themeMode === 'dark', click: () => { win.webContents.send('ui:applyThemePreset', null); win.webContents.send('ui:setThemeMode', 'dark'); } },
+        ]},
+        { type: 'separator' },
+        { label: tr('menu.view.panels'), submenu: [
+          { label: tr('menu.view.panels.sidebar'), type: 'checkbox', checked: !shellState.sidebarCollapsed, click: () => win.webContents.send('ui:toggleSidebar') },
+          { label: tr('menu.view.panels.details'), type: 'checkbox', checked: shellState.inspectorVisible, click: () => win.webContents.send('ui:toggleInspector') },
+          { label: tr('menu.view.panels.statusBar'), type: 'checkbox', checked: shellState.statusBarVisible, click: () => win.webContents.send('ui:toggleStatusBar') },
+        ]},
+        { type: 'separator' },
+        { label: tr('menu.view.window'), submenu: [
+          { role: 'minimize', label: tr('menu.view.window.minimize') },
+          { label: tr('menu.view.window.maximize'), click: () => { if (win.isMaximized()) { win.unmaximize(); } else { win.maximize(); } } }
+        ]},
+        { type: 'separator' },
+        { label: tr('menu.view.devtools'), accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I', click: () => { const wc = win.webContents; if (wc.isDevToolsOpened()) wc.closeDevTools(); else wc.openDevTools({ mode: 'detach' }); } }
+      ]
+    },
+    {
+      label: tr('menu.help'),
+      submenu: [
+        { label: tr('menu.help.docs'), click: () => shell.openExternal('https://docs.storymode.help') },
+        { label: tr('menu.help.language'), click: () => shell.openExternal('https://docs.storymode.help/language') },
+        { label: tr('menu.help.cheatsheet'), click: () => shell.openExternal('https://docs.storymode.help/shortcuts') },
+        { type: 'separator' },
+        { label: tr('menu.help.openTelemetry'), click: () => { try { const p = path.join(app.getPath('userData'), 'telemetry'); shell.openPath(p); track('telemetry.openFolder'); } catch {} } },
+        { type: 'separator' },
+        { label: tr('menu.help.requestSupport'), click: () => win.webContents.send('help:requestSupport') },
+        { label: tr('menu.help.reportBug'), click: () => win.webContents.send('help:reportBug') },
+        { label: tr('menu.help.requestFeature'), click: () => win.webContents.send('help:requestFeature') },
+        { type: 'separator' },
+        { label: tr('menu.help.about'), click: () => win.webContents.send('app:openAbout') },
+      ]
+    }
   ];
-
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 }
@@ -613,10 +601,35 @@ app.on("ready", async () => {
     await createWindow();
     const focused = BrowserWindow.getAllWindows()[0];
     if (focused) buildMenu(focused);
+    // Initialize telemetry after window creation so app paths & version are ready.
+    try {
+      const rec = await initTelemetry();
+      track = rec.track;
+      // Remote uploader scaffold (inactive unless user enables share + endpoint configured)
+      try {
+        const uploader = createRemoteUploader({
+          shareEnabled: () => { try { return (global as any).__storymodeShareTelemetry === true; } catch { return false; } },
+          endpoint: process.env.STORYMODE_TELEMETRY_ENDPOINT, // optional
+          whitelist: ['version','locale','ms','err','narratives','scenes','hasPath','platform','arch','cpuCount','memMB','type','v'],
+        });
+        rec._injectRemote?.(uploader as any);
+      } catch { /* ignore uploader errors */ }
+      track('app.main.ready');
+    } catch (teleErr) {
+      console.warn('Telemetry initialization failed:', teleErr); // non-fatal
+    }
   } catch (err) {
     console.error("Error creating window:", err);
     app.quit();
   }
+});
+
+// Unhandled error instrumentation (sanitized)
+process.on('uncaughtException', (err) => {
+  try { track('error.unhandled', { type: 'uncaught', msg: err?.message?.slice(0,200), name: (err as any)?.name }); } catch {}
+});
+process.on('unhandledRejection', (reason: any) => {
+  try { const msg = typeof reason === 'string' ? reason : reason?.message; track('error.unhandled', { type: 'unhandledRejection', msg: msg?.slice?.(0,200), name: reason?.name }); } catch {}
 });
 
 app.on("window-all-closed", () => {

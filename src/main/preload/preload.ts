@@ -35,6 +35,9 @@ const api = {
     ipcRenderer.send("ui:shellState", state),
   explorerContextMenu: (payload: { id: string; type: 'story'|'narrative'|'scene'; narrativeId?: string; sceneId?: string; title?: string; }) =>
     ipcRenderer.send('explorer:contextMenu', payload),
+  setLocale: (locale: string) => ipcRenderer.send('app:setLocale', locale),
+  telemetryEvent: (event: string, props?: Record<string, any>) => ipcRenderer.send('telemetry:event', { event, props }),
+  telemetrySummary: () => ipcRenderer.invoke('telemetry:summary'),
 };
 
 const w: any = (globalThis as any).window || globalThis;

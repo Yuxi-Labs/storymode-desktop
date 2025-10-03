@@ -1,4 +1,5 @@
 ﻿import React, { useMemo } from "react";
+import { t } from '../i18n.js';
 import { useStore, selectFile, selectParse, type RootState } from "../store/store.js";
 
 export const TabBar: React.FC = () => {
@@ -12,31 +13,31 @@ export const TabBar: React.FC = () => {
   const storyModel = useStore(s => s.storyModel);
   const title = useMemo(() => {
     const active = storyModel.activeEntity;
-    if (!active) return 'Untitled Story';
-    if (active.type === 'story') return storyModel.story?.title || 'Untitled Story';
-    if (active.type === 'narrative') return storyModel.narratives[active.internalId]?.title || 'Untitled Narrative';
+    if (!active) return t('tab.untitled.story');
+    if (active.type === 'story') return storyModel.story?.title || t('tab.untitled.story');
+    if (active.type === 'narrative') return storyModel.narratives[active.internalId]?.title || t('tab.untitled.narrative');
     if (active.type === 'scene') {
       const sc = storyModel.scenes[active.internalId];
-      return sc?.title || 'Untitled Scene';
+      return sc?.title || t('tab.untitled.scene');
     }
-    return 'Untitled Story';
+    return t('tab.untitled.story');
   }, [storyModel]);
 
   const handleClose = () => closeFile();
 
   return (
-    <div className="tab-bar" role="tablist" aria-label="Open story">
+    <div className="tab-bar" role="tablist" aria-label={t('tab.bar.aria')}>
       <div className="tab active" role="tab" aria-selected tabIndex={0}>
         <div className="tab-meta">
           <span className="tab-title">{title}</span>
-          {file.isDirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
+          {file.isDirty && <span className="dirty-dot" aria-label={t('status.unsaved')} />}
         </div>
   {/* Caption intentionally removed per requirement: no story/narrative chain in scene tab */}
         <div
           className="tab-close"
           role="button"
           tabIndex={0}
-          title="Close story"
+          title={t('tab.close.tooltip')}
           onClick={handleClose}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -44,7 +45,7 @@ export const TabBar: React.FC = () => {
               handleClose();
             }
           }}
-          aria-label="Close story"
+          aria-label={t('tab.close.tooltip')}
         >
           ×
         </div>

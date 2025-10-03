@@ -184,6 +184,9 @@ Status: Consolidated reference. Many constructs below are forward-looking and NO
 **`.story`** — Story definition / manifest.
 **`.narrative`** — Narrative arc containing one or more scene blocks.
 
+Localization & International Authoring:
+Chinese (CJK) characters are now supported in story, narrative, and scene IDs. IDs may include characters in the Unicode range U+4E00–U+9FFF alongside ASCII letters, digits, and underscore. Normalization preserves these characters (they are not transliterated). Tooling (tokenizer, completion, structure parser) recognizes them equivalently to ASCII identifiers.
+
 Example `.story` (illustrative – extended metadata not yet persisted by runtime):
 ```
 ::story: echoes_of_starlight
@@ -231,13 +234,13 @@ This table supersedes prior draft symbol lists. Keyboard tokens (left) are what 
 
 | Typed Token        | Rendered Glyph   | Meaning / Use                                                                                 |
 | ------------------ | ---------------- | --------------------------------------------------------------------------------------------- |
-| `::story:`         | ✤                | Story declaration block (root metadata container)                                            |
-| `@key: value`      | ＠                | Story-level metadata attribute (rendered with fullwidth @ in symbol view)                    |
-| `::narrative:`     | ⧉                | Narrative container (structural; not standalone prose)                                        |
-| `::scene:`         | §                | Scene / section anchor                                                                       |
+| `::story:`         | (plain)          | Story declaration block (root metadata container)                                            |
+| `@key: value`      | (plain)          | Story / block-level metadata attribute (no special glyph; conventional ASCII retained)       |
+| `::narrative:`     | (plain)          | Narrative container (structural; not standalone prose)                                        |
+| `::scene:`         | (plain)          | Scene / section anchor                                                                       |
 | `{{ scene_name }}` | {{ scene_name }} | Scene handle (named reference target)                                                        |
 | `::goto:`          | ⇝                | Non-branching structural jump / redirection to another scene                                 |
-| `::end:`           | ◈                | Explicit end of story or block (optionally with handle)                                      |
+| `::end:`           | (plain)          | Explicit end of story or block (optionally with handle)                                      |
 | `[[ Name ]]`       | 🞶 Name          | Character declaration (rendered with prefixed glyph + name)                                  |
 | `"..."`            | ¶                | Dialogue (spoken prose, rendered as prose block)                                             |
 | `>>`               | ↠                | Cue line (action / performance)                                                              |
@@ -261,9 +264,12 @@ Substitution / Rendering Notes:
 6. All glyph replacements are presentation-layer only; source file persists original ASCII tokens unless an explicit “normalize to glyphs” action is invoked (future feature).
 
 Implementation Status (delta):
-- Newly introduced glyphs here (✤, ⧉, ◈, ✢, †) were not in prior draft; parser currently ignores them.
-- Character declaration now visually renders with leading 🞶 glyph while retaining source token form `[[ Name ]]`.
+- Core structural directives (`::story:`, `::narrative:`, `::scene:`, `::end:`) and metadata lines now render as plain ASCII with no glyph substitution. Prior reserved glyphs (✤, ⧉, §, ◈, ＠) have been freed for potential future semantic roles.
+- Character declaration may later gain a prefixed glyph; currently rendered plain aside from syntax highlighting.
 - List syntax `[ a, b, c ]` recognized only lexically for planned structured metadata; parser currently treats as plain text.
+
+Deprecation Note:
+Previous drafts assigned decorative glyphs to core directives. This has been intentionally reverted to keep authoring visually lightweight and reserve those symbols for higher‑value future constructs (e.g., branching, conditionals, annotations). Tooling should not rely on glyph substitution for these directives.
 
 Planned Validation (future):
 - Enforce single `::end:` alignment with opening `::story:`.

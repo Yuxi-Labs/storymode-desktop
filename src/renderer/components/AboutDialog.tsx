@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { t } from '../i18n.js';
 import mascotPng from '../../../assets/images/logos/storymode-logo-char1.png';
 
 interface VersionInfo {
@@ -104,39 +105,35 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onClose }) => {
       >
         <div className="about-header" style={{ gap: '6px', userSelect: 'none' }}>
           <div className="about-mascot-wrapper">
-            <img className="about-mascot" src={mascotPng} alt="StoryMode Mascot" />
+            <img className="about-mascot" src={mascotPng} alt={t('about.mascot.alt')} />
           </div>
           <div className="about-heading-text">
-            <h1 id="about-title" className="about-title">
-              StoryMode
-            </h1>
+            <h1 id="about-title" className="about-title">{t('app.name')}</h1>
             <p className="about-tagline">
-              Environment for writing stories
-              <br />
-              for video games
+              {t('app.tagline.line1')}<br />{t('app.tagline.line2')}
             </p>
           </div>
         </div>
         <button
           className="about-close"
-          aria-label="Close About"
+          aria-label={t('about.close.aria')}
           onClick={onClose}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M6.4 5 12 10.6 17.6 5l1.4 1.4L13.4 12l5.6 5.6-1.4 1.4L12 13.4 6.4 19l-1.4-1.4L10.6 12 5 6.4 6.4 5Z" fill="currentColor" />
           </svg>
         </button>
-        <div className="about-versions" aria-label="Version information">
-          <div className="about-version-row"><span className="about-ver-label">Application</span><span className="about-ver-value">{versions?.appVersion ?? '…'}</span></div>
-          <div className="about-version-row"><span className="about-ver-label">Core</span><span className="about-ver-value">{versions?.coreVersion ?? '…'}</span></div>
-          <div className="about-version-row"><span className="about-ver-label">Compiler</span><span className="about-ver-value">{versions?.compilerVersion ?? '…'}</span></div>
+  <div className="about-versions" aria-label={t('about.version.info')}>
+          <div className="about-version-row"><span className="about-ver-label">{t('about.version.application')}</span><span className="about-ver-value">{versions?.appVersion ?? '…'}</span></div>
+          <div className="about-version-row"><span className="about-ver-label">{t('about.version.core')}</span><span className="about-ver-value">{versions?.coreVersion ?? '…'}</span></div>
+          <div className="about-version-row"><span className="about-ver-label">{t('about.version.compiler')}</span><span className="about-ver-value">{versions?.compilerVersion ?? '…'}</span></div>
         </div>
         <footer className="about-footer">
           <div className="about-copyright">
             © {new Date().getFullYear()} William Sawyerr — All rights reserved
           </div>
           <div className="about-actions">
-            <button onClick={onClose} className="about-btn-neutral" ref={footerCloseRef}>Close</button>
+            <button onClick={onClose} className="about-btn-neutral" ref={footerCloseRef}>{t('action.close')}</button>
           </div>
         </footer>
       </div>

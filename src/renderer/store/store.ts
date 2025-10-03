@@ -55,6 +55,8 @@ export interface UIState {
   inspectorVisible: boolean;
   statusBarVisible: boolean;
   previewVisible: boolean;
+  telemetryEnabled: boolean; // user preference for local telemetry logging
+  telemetryShareEnabled?: boolean; // future remote sharing (opt-in)
   caretLine?: number;
   caretColumn?: number;
   sidebarWidthPx: number; // user-adjustable
@@ -128,6 +130,8 @@ export interface StoreState {
   toggleStatusBar: () => void;
   setSidebarWidth: (px: number) => void;
   setInspectorWidth: (px: number) => void;
+  setTelemetryEnabled: (enabled: boolean) => void;
+  setTelemetryShareEnabled: (enabled: boolean) => void;
   // Hierarchical story model actions
   newStory: (title?: string) => void;
   addNarrative: (title?: string) => string | undefined;
@@ -152,6 +156,7 @@ const themeStorageKey = {
   inspectorVisible: "storymode.inspectorVisible",
   statusBarVisible: "storymode.statusBarVisible",
   previewVisible: "storymode.previewVisible",
+  telemetryEnabled: 'storymode.telemetryEnabled',
 } as const;
 
 const themePresetMap: Record<string, UIState["theme"]> = {
@@ -202,6 +207,7 @@ function loadPersistedUI(): UIState {
       inspectorVisible: false, // ensure default is false
       statusBarVisible: true,
       previewVisible: false,
+      telemetryEnabled: true,
       sidebarWidthPx: 240,
       inspectorWidthPx: 320,
     };
@@ -231,6 +237,8 @@ function loadPersistedUI(): UIState {
   const inspectorVisible = storage.getItem(themeStorageKey.inspectorVisible) === "true";
   const statusBarVisible = storage.getItem(themeStorageKey.statusBarVisible) !== "false";
   const previewVisible = storage.getItem(themeStorageKey.previewVisible) === "true";
+  const telemetryEnabled = storage.getItem(themeStorageKey.telemetryEnabled) !== 'false';
+  const telemetryShareEnabled = storage.getItem('storymode.telemetryShareEnabled') === 'true';
 
   return {
     theme,
@@ -243,10 +251,15 @@ function loadPersistedUI(): UIState {
     inspectorVisible,
     statusBarVisible,
     previewVisible,
+    telemetryEnabled,
+  telemetryShareEnabled,
     sidebarWidthPx: parseInt(storage.getItem('storymode.sidebarWidthPx') || '240', 10) || 240,
     inspectorWidthPx: parseInt(storage.getItem('storymode.inspectorWidthPx') || '320', 10) || 320,
   };
 }
+
+// Telemetry helper (defined after useStore type but before useStore declaration; will be reassigned once store exists)
+let _trackRendererTelemetry: (event: string, props?: Record<string, any>) => void = () => {};
 
 const initialState: Pick<StoreState, "file" | "parse" | "compile" | "ui" | "navigation" | "timings"> = {
   file: {
@@ -303,10 +316,11 @@ function slugify(raw: string): string {
 
 // External IDs are author-visible (underscored). Internal IDs are stable UUIDs.
 function toExternalId(raw: string): string {
+  // Preserve CJK Unified Ideographs while normalizing other characters.
   return raw
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9\s_-]+/g, "")
+    .replace(/[^a-z0-9\u4E00-\u9FFF\s_-]+/g, "")
     .replace(/[\s_-]+/g, "_")
     .replace(/^_+|_+$/g, "") || 'untitled';
 }
@@ -515,6 +529,14 @@ export const useStore = create<StoreState>((set, get) => ({
   ...initialState,
   storyModel: { story: undefined, storyContent: '', narratives: {}, scenes: {}, activeSceneId: undefined, activeEntity: undefined },
   notifications: { items: [], unread: 0 },
+  setTelemetryEnabled: (enabled) => set(state => {
+    try { localStorage.setItem('storymode.telemetryEnabled', String(enabled)); } catch { /* ignore */ }
+    return { ui: { ...state.ui, telemetryEnabled: enabled } };
+  }),
+  setTelemetryShareEnabled: (enabled) => set(state => {
+    try { localStorage.setItem('storymode.telemetryShareEnabled', String(enabled)); } catch { /* ignore */ }
+    return { ui: { ...state.ui, telemetryShareEnabled: enabled } };
+  }),
   serializeStoryComposite: () => {
     const state = get();
     const payload = buildCompositePayload(state.storyModel, state.file.encoding);
@@ -553,6 +575,7 @@ export const useStore = create<StoreState>((set, get) => ({
         parse: { ...state.parse, status: 'idle', ast: null, diagnostics: [], tokens: [], version: state.parse.version + 1 },
         compile: { ...state.compile, status: 'idle', ir: null, diagnostics: [], version: state.compile.version + 1 },
       }));
+      try { const st = useStore.getState(); if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.('story.load', { narratives: narrativeInternalIds.length, scenes: Object.keys(scenes).length }); } catch {}
       return true;
     } catch {
       return false;
@@ -621,6 +644,7 @@ export const useStore = create<StoreState>((set, get) => ({
       parse: { ...state.parse, status: "parsing", error: undefined },
       timings: { ...state.timings, lastParseScheduledAt: Date.now() },
     }));
+    try { const st = get(); if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.('parse.start', { v: st.parse.version + 1 }); } catch {}
   },
   applyParseResult: (result: ParseResponse) => {
     if (!result) return;
@@ -657,11 +681,17 @@ export const useStore = create<StoreState>((set, get) => ({
         },
       };
     });
+    try {
+      const st = get();
+      const ev = result.ok ? 'parse.success' : 'parse.error';
+      if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.(ev, { ms: result.ok ? (result as any).parseTimeMs : undefined, err: result.ok ? undefined : result.error });
+    } catch {}
   },
   requestCompile: () => {
     set((state) => ({
       compile: { ...state.compile, status: "compiling", error: undefined },
     }));
+    try { const st = get(); if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.('compile.start', { v: st.compile.version + 1 }); } catch {}
   },
   applyCompileResult: (result: CompileResponse) => {
     if (!result) return;
@@ -694,6 +724,7 @@ export const useStore = create<StoreState>((set, get) => ({
         file: { ...state.file, isDirty: state.file.isDirty },
       };
     });
+    try { const st = get(); const ev = result.ok ? 'compile.success' : 'compile.error'; if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.(ev, { ms: (result as any).genTimeMs, err: result.ok ? undefined : result.error }); } catch {}
   },
   setActivePanel: (panel) =>
     set((state) => ({ ui: { ...state.ui, activePanel: panel } })),
@@ -756,7 +787,7 @@ export const useStore = create<StoreState>((set, get) => ({
       },
       storyModel: { story: undefined, narratives: {}, scenes: {}, activeSceneId: undefined },
     })),
-  markSaved: (path) =>
+  markSaved: (path) => {
     set((state) => ({
       file: {
         ...state.file,
@@ -764,7 +795,9 @@ export const useStore = create<StoreState>((set, get) => ({
         lastDiskContent: state.file.content,
         isDirty: false,
       },
-    })),
+    }));
+    try { const st = useStore.getState(); if (st.ui.telemetryEnabled) window.storymode?.telemetryEvent?.('story.save', { hasPath: !!(path ?? st.file.path) }); } catch {}
+  },
   setFilePath: (path) => set((state) => ({ file: { ...state.file, path } })),
   setCaret: (line, column) =>
     set((state) => ({
@@ -836,7 +869,16 @@ export const useStore = create<StoreState>((set, get) => ({
   setInspectorWidth: (px: number) => set((state) => ({ ui: { ...state.ui, inspectorWidthPx: Math.min(800, Math.max(220, Math.round(px))) } })),
   // Hierarchical model actions
   newStory: (title) => {
-    const seed = createSeedStory(title || 'Untitled Story');
+    // Lazy import t() to avoid circular imports at module load
+    let localizedTitle = title;
+    if (!localizedTitle) {
+      // dynamic import to avoid circular at module init; ignore errors
+      // NOTE: This is synchronous usage; we fallback immediately if unresolved.
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  import('../i18n.js').then(mod => { if (!localizedTitle && (mod as any)?.t) { localizedTitle = (mod as any).t('tab.untitled.story'); } }).catch(() => {});
+    }
+    const fallbackTitle = localizedTitle || 'Untitled Story';
+    const seed = createSeedStory(fallbackTitle);
     const story = seed.story!;
     set((state) => ({
       storyModel: seed,
@@ -848,13 +890,20 @@ export const useStore = create<StoreState>((set, get) => ({
     const state = get();
     if (!state.storyModel.story) return undefined;
     const order = state.storyModel.story.narrativeIds.length;
-    const narrativeTitle = title || `Untitled Narrative ${order + 1}`;
+    let narrativeTitle = title;
+    if (!narrativeTitle) {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  import('../i18n.js').then(mod => { if (!narrativeTitle && (mod as any)?.t) narrativeTitle = (mod as any).t('tab.untitled.narrative'); }).catch(() => {});
+    }
+    narrativeTitle = narrativeTitle || `Untitled Narrative ${order + 1}`;
     const baseExternal = toExternalId(narrativeTitle);
     const existing = new Set(Object.values(state.storyModel.narratives).map(n => n.externalId));
     const externalId = ensureUniqueExternalId(existing, baseExternal);
     const internalId = uuid();
     // Create default first scene
-    const sceneTitle = 'Untitled Scene 1';
+  let sceneTitle: string = 'Untitled Scene 1';
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  import('../i18n.js').then(mod => { try { sceneTitle = (mod as any).t('tab.untitled.scene') + ' 1'; } catch { /* ignore */ } }).catch(() => {});
     const sceneExternal = ensureUniqueExternalId(new Set(), toExternalId(sceneTitle));
     const sceneInternal = uuid();
     const newNarrative = { internalId, externalId, title: narrativeTitle, sceneIds: [sceneInternal], order, content: '', _managedId: true };
@@ -870,7 +919,13 @@ export const useStore = create<StoreState>((set, get) => ({
     const narrative = state.storyModel.narratives[narrativeId];
     if (!narrative) return undefined;
     const index = narrative.sceneIds.length;
-    const sceneTitle = title || `Untitled Scene ${index + 1}`;
+    let sceneTitle = title;
+    if (!sceneTitle) {
+      let base = '';
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  import('../i18n.js').then(mod => { try { base = (mod as any).t('tab.untitled.scene'); } catch { /* ignore */ } }).catch(() => {});
+      sceneTitle = base ? `${base} ${index + 1}` : `Untitled Scene ${index + 1}`;
+    }
     const baseExternal = toExternalId(sceneTitle);
     const existing = new Set(narrative.sceneIds.map(sid => state.storyModel.scenes[sid]?.externalId).filter(Boolean) as string[]);
     const externalId = ensureUniqueExternalId(existing, baseExternal);

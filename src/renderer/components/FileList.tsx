@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from "react";
 import { useStore } from "../store/store.js";
+import { t } from '../i18n.js';
 
 interface FlatItem { id: string; type: 'story' | 'narrative' | 'scene'; parent?: string; expandable: boolean; expanded?: boolean; narrativeId?: string; sceneId?: string; }
 
@@ -36,6 +37,8 @@ export const FileList: React.FC = () => {
   const [focusId, setFocusId] = useState('story');
   // Removed custom menu; using Electron native context menu via preload IPC
   const listRef = useRef<HTMLUListElement>(null);
+  // telemetry helper
+  function fTrack(event: string, props?: Record<string, any>) { try { if (!useStore.getState().ui.telemetryEnabled) return; window.storymode?.telemetryEvent?.(event, props); } catch {} }
 
   const story = storyModel.story; // may be undefined initially while creating a new story
 
@@ -118,8 +121,8 @@ export const FileList: React.FC = () => {
       const detail: any = (e as CustomEvent).detail;
       if (detail?.id) deleteScene(detail.id);
     };
-    const handleAddNarrative = () => { addNarrative(); };
-    const handleAddScene = (e: Event) => { const d: any = (e as CustomEvent).detail; if (d?.narrativeId) addScene(d.narrativeId); };
+  const handleAddNarrative = () => { const id = addNarrative(); fTrack('narrative.add', { id }); };
+  const handleAddScene = (e: Event) => { const d: any = (e as CustomEvent).detail; if (d?.narrativeId) { const id = addScene(d.narrativeId); fTrack('scene.add', { id, narrativeId: d.narrativeId }); } };
     const handleDeleteNarrative = (e: Event) => { const d: any = (e as CustomEvent).detail; if (d?.narrativeId) deleteNarrative(d.narrativeId); };
     window.addEventListener('explorer:renameResult', handleRename as any);
     window.addEventListener('explorer:deleteScene', handleDeleteScene as any);
@@ -146,11 +149,11 @@ export const FileList: React.FC = () => {
   const activeEntity = storyModel.activeEntity;
 
   return (
-    <div className="vsc-explorer" role="region" aria-label="Story Explorer">
+  <div className="vsc-explorer" role="region" aria-label={t('explorer.region.aria')}>
       <ul className="vsc-tree" role="tree" ref={listRef}>
         {flat.length === 0 && (
           <li className="vsc-item" aria-disabled="true" style={{ padding: '4px 8px', opacity: 0.7 }}>
-            Initializing story…
+            {t('explorer.initializing')}
           </li>
         )}
         {flat.map(item => {
@@ -162,7 +165,7 @@ export const FileList: React.FC = () => {
             else if (item.type === 'scene' && activeEntity.type === 'scene' && activeEntity.internalId === item.sceneId) isActive = true;
           }
           const level = item.type === 'story' ? 1 : item.type === 'narrative' ? 2 : 3;
-          const storyFileNameLabel = (storyModel.story?.title || 'Story');
+          const storyFileNameLabel = (storyModel.story?.title || t('explorer.storyFallback'));
           const label = item.type === 'story'
             ? storyFileNameLabel
             : item.type === 'narrative'
@@ -238,7 +241,7 @@ export const FileList: React.FC = () => {
                     className="chevron"
                     style={{ marginLeft:4, marginRight:0, cursor:'pointer' }}
                     onClick={(e) => { e.stopPropagation(); if (item.type === 'story') setStoryExpanded(!storyExpanded); else if (item.type === 'narrative' && item.narrativeId) toggleNarrative(item.narrativeId); }}
-                    aria-label={expanded ? 'Collapse' : 'Expand'}
+                    aria-label={expanded ? t('explorer.collapse') : t('explorer.expand')}
                   >
                     {expanded ? (
                       // Up arrow when expanded

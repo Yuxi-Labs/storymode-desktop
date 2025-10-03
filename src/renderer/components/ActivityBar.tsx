@@ -1,6 +1,7 @@
 import React from "react";
 import { useStore } from "../store/store.js";
 import type { RootState } from "../store/store.js";
+import { useI18n } from '../i18n.js';
 
 const IconFiles = () => (
   <svg
@@ -19,11 +20,8 @@ const IconFiles = () => (
   </svg>
 );
 
-const views: Array<{
-  id: RootState["ui"]["sidebarView"];
-  label: string;
-  icon: React.FC;
-}> = [{ id: "story" as any, label: "New Story", icon: IconFiles }];
+// Views will be built inside component to avoid invoking hooks at module scope.
+interface ViewDef { id: RootState['ui']['sidebarView']; label: string; icon: React.FC; }
 
 const handleActivate = (
   event: React.KeyboardEvent | React.MouseEvent,
@@ -40,6 +38,8 @@ const handleActivate = (
 };
 
 export const ActivityBar: React.FC = () => {
+  const { t } = useI18n();
+  const views: ViewDef[] = [{ id: 'story' as any, label: t('activity.newStory'), icon: IconFiles }];
   const sidebarView = useStore((s) => s.ui.sidebarView);
   const sidebarCollapsed = useStore((s) => s.ui.sidebarCollapsed);
   const setSidebarView = useStore((s: RootState) => s.setSidebarView);
